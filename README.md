@@ -18,7 +18,7 @@ Quand le module sera reference dans le catalogue Foundry, l'installation pourra 
 
 - Foundry VTT minimum: 12
 - Foundry VTT verifie: 14.361
-- Module RollCodex: 0.1.9
+- Module RollCodex: 0.1.10
 
 ## Utilisation
 
