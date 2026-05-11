@@ -22,7 +22,7 @@
   "ROLLCODEX.panel.tablePlaceholder": "Ex. Table du jeudi",
   "ROLLCODEX.panel.saveContext": "Enregistrer le contexte",
   "ROLLCODEX.panel.autoSnapshotLabel": "Capture automatique de fin de session",
-  "ROLLCODEX.panel.autoSnapshotHint": "Foundry tente une capture quand le monde ou l'onglet se ferme, à la fin d'un combat, et après une période d'inactivité. Le bouton « Terminer la session » reste le moyen le plus fiable.",
+  "ROLLCODEX.panel.autoSnapshotHint": "Foundry tente une capture quand le monde ou l'onglet se ferme, et après une période d'inactivité. Le bouton « Terminer la session » reste le moyen le plus fiable.",
   "ROLLCODEX.panel.pendingMessagesNone": "Aucun nouveau message depuis la dernière capture.",
   "ROLLCODEX.panel.pendingMessagesOne": "1 nouveau message à capturer",
   "ROLLCODEX.panel.pendingMessagesMany": "{count} nouveaux messages à capturer",

@@ -1,7 +1,7 @@
 /* global Dialog, FormApplication, Hooks, foundry, game, ui */
 
 const MODULE_ID = 'rollcodex';
-const MODULE_VERSION = '0.1.11';
+const MODULE_VERSION = '0.1.12';
 const DEFAULT_ROLLCODEX_APP_URL = 'http://localhost:5173';
 const MESSAGE_HANDSHAKE_TYPE = 'rollcodex:vtt-pairing-handshake';
 const MESSAGE_HANDSHAKE_RESPONSE_TYPE = 'rollcodex:vtt-pairing-handshake-response';
@@ -48,8 +48,6 @@ const activeConnectionApps = new Set();
 
 const autoSnapshotState = {
   hookRegistered: false,
-  sessionEndSent: false,
-  lastSessionEndSentAtMs: 0,
   lastErrorMessage: '',
   idleTimer: null,
   inMemoryLastMessageId: '',
@@ -298,7 +296,8 @@ function collectChatMessagesSince(sinceMessageId) {
 function buildSnapshotPayload(connection, { mode = 'manual', reason = 'manual', sinceMessageId = '' } = {}) {
   const { messages, lastMessageId, lastInBatch } = collectChatMessagesSince(sinceMessageId);
   const idempotencyToken = lastInBatch || sinceMessageId || 'empty';
-  const clientRequestId = mode === 'auto'
+  const stableSessionCapture = mode === 'auto' || reason === 'manual_session_end';
+  const clientRequestId = stableSessionCapture
     ? `${connection.connectionId}:auto:${idempotencyToken}`
     : `${connection.connectionId}:${mode}:${idempotencyToken}:${generateState()}`;
 
@@ -451,21 +450,18 @@ function hasPendingSnapshotMessages() {
   return collectChatMessagesSince(sinceMessageId).messages.length > 0;
 }
 
+function isFoundryDesktopClient() {
+  const userAgent = String(navigator.userAgent || '').toLowerCase();
+  return userAgent.includes('electron') || Boolean(globalThis.process?.versions?.electron);
+}
+
 function shouldSendSessionEndSnapshot() {
   if (!canCurrentUserSendSnapshots()) return false;
   if (!hasStoredConnection()) return false;
-  if (autoSnapshotState.sessionEndSent) return false;
 
   const settings = getAutoSnapshotSettings();
   if (!settings.enabled) return false;
-  if (!hasPendingSnapshotMessages()) return false;
-
-  const now = Date.now();
-  if (autoSnapshotState.lastSessionEndSentAtMs && now - autoSnapshotState.lastSessionEndSentAtMs < settings.minIntervalMs) {
-    return false;
-  }
-
-  return true;
+  return hasPendingSnapshotMessages();
 }
 
 function postSnapshotPayloadDuringUnload(endpoint, snapshotPayload) {
@@ -511,24 +507,21 @@ function sendSessionEndSnapshot(reason = 'foundry_session_end') {
 
   if (messageCount === 0) return;
 
-  const nowIso = new Date().toISOString();
-  autoSnapshotState.sessionEndSent = true;
-  autoSnapshotState.lastSessionEndSentAtMs = Date.now();
-  autoSnapshotState.inMemoryLastMessageId = lastMessageId || autoSnapshotState.inMemoryLastMessageId;
-
-  game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastSentAt, nowIso).catch(() => {});
-  game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastError, '').catch(() => {});
-  if (lastMessageId) {
-    game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastMessageId, lastMessageId).catch(() => {});
-  }
-
   const accepted = postSnapshotPayloadDuringUnload(connection.endpoint, payload);
 
   if (!accepted) {
     const message = 'Capture automatique de fin de session impossible.';
-    autoSnapshotState.sessionEndSent = false;
     autoSnapshotState.lastErrorMessage = message;
     game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastError, message).catch(() => {});
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  autoSnapshotState.inMemoryLastMessageId = lastMessageId || autoSnapshotState.inMemoryLastMessageId;
+  game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastSentAt, nowIso).catch(() => {});
+  game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastError, '').catch(() => {});
+  if (lastMessageId) {
+    game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastMessageId, lastMessageId).catch(() => {});
   }
 }
 
@@ -557,15 +550,6 @@ function scheduleIdleSnapshot() {
   }, idleMs);
 }
 
-function triggerCombatEndSnapshot() {
-  if (!canCurrentUserSendSnapshots()) return;
-  if (!hasStoredConnection()) return;
-  if (!getAutoSnapshotSettings().enabled) return;
-
-  sendSnapshotPayload({ mode: 'auto', reason: 'combat_end', skipIfEmpty: true })
-    .catch((error) => console.warn('[RollCodex] Combat-end snapshot failed', error));
-}
-
 function registerAutoSnapshotHooks() {
   if (autoSnapshotState.hookRegistered) return;
   autoSnapshotState.hookRegistered = true;
@@ -576,21 +560,16 @@ function registerAutoSnapshotHooks() {
   window.addEventListener('beforeunload', () => {
     sendSessionEndSnapshot('foundry_beforeunload');
   }, { capture: true });
-  window.addEventListener('focus', () => {
-    const settings = getAutoSnapshotSettings();
-    if (Date.now() - autoSnapshotState.lastSessionEndSentAtMs >= settings.minIntervalMs) {
-      autoSnapshotState.sessionEndSent = false;
+  window.addEventListener('unload', () => {
+    sendSessionEndSnapshot('foundry_unload');
+  }, { capture: true });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && isFoundryDesktopClient()) {
+      sendSessionEndSnapshot('foundry_desktop_visibility_hidden');
     }
-  });
-
+  }, { capture: true });
   Hooks.on('createChatMessage', () => {
     scheduleIdleSnapshot();
-  });
-  Hooks.on('deleteCombat', () => {
-    triggerCombatEndSnapshot();
-  });
-  Hooks.on('combatEnd', () => {
-    triggerCombatEndSnapshot();
   });
 
   scheduleIdleSnapshot();

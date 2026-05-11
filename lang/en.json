@@ -22,7 +22,7 @@
   "ROLLCODEX.panel.tablePlaceholder": "e.g. Thursday table",
   "ROLLCODEX.panel.saveContext": "Save context",
   "ROLLCODEX.panel.autoSnapshotLabel": "Automatic end-of-session capture",
-  "ROLLCODEX.panel.autoSnapshotHint": "Foundry attempts a capture when the world or tab closes, when a combat ends, and after a chat idle period. The 'End session' button remains the most reliable way.",
+  "ROLLCODEX.panel.autoSnapshotHint": "Foundry attempts a capture when the world or tab closes and after a chat idle period. The 'End session' button remains the most reliable way.",
   "ROLLCODEX.panel.pendingMessagesNone": "No new messages since last capture.",
   "ROLLCODEX.panel.pendingMessagesOne": "1 new message ready to capture",
   "ROLLCODEX.panel.pendingMessagesMany": "{count} new messages ready to capture",
