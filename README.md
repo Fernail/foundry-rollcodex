@@ -2,13 +2,17 @@
 
 Module Foundry VTT officiel pour connecter un monde Foundry a RollCodex et envoyer des captures VTT relues avant import.
 
+RollCodex aide les MJ a transformer des donnees VTT relues en activite de campagne, tendances et imports exploitables dans leur registre RollCodex.
+
 ## Installation
 
-Manifest Foundry:
+Depuis Foundry, installer le module via le manifest public:
 
 ```text
 https://github.com/Fernail/foundry-rollcodex/releases/latest/download/module.json
 ```
+
+Quand le module sera reference dans le catalogue Foundry, l'installation pourra se faire directement depuis l'interface de Foundry.
 
 ## Compatibilite
 
@@ -16,38 +20,17 @@ https://github.com/Fernail/foundry-rollcodex/releases/latest/download/module.jso
 - Foundry VTT verifie: 14.361
 - Module RollCodex: 0.1.9
 
-## Securite
+## Utilisation
 
-La liaison doit etre lancee depuis un compte MJ dans Foundry. Le secret actif reste stocke cote client dans Foundry, et la page RollCodex demande une preuve locale via la fenetre ouverte par le module avant d'autoriser la connexion.
+1. Activer le module dans le monde Foundry.
+2. Ouvrir les parametres du module RollCodex.
+3. Lancer la connexion vers RollCodex.
+4. Choisir le registre, le systeme, la campagne et la table dans RollCodex.
+5. Envoyer une capture manuelle ou laisser les captures de fin de session actives.
+6. Relire puis importer les donnees dans RollCodex.
 
-## Release
+Le module envoie des captures VTT a relire. RollCodex ne transforme pas automatiquement ces donnees en narration et ne pretend pas deduire un contexte de jeu absent des logs.
 
-La release GitHub publie deux assets attendus par Foundry:
+## Support
 
-- `module.json`
-- `rollcodex-v0.1.9.zip`
-
-## Release automatisee
-
-Le workflow GitHub Actions `.github/workflows/foundry-release.yml` publie les assets GitHub et notifie l API Foundry.
-
-Configuration une seule fois:
-
-```bash
-gh secret set FOUNDRY_RELEASE_TOKEN --repo Fernail/foundry-rollcodex
-```
-
-Coller le token de release Foundry quand la commande le demande. Ne jamais commiter ce token.
-
-Pour publier une nouvelle version:
-
-1. Mettre a jour `version` et `download` dans `module.json`.
-2. Commiter le changement sur `main`.
-3. Creer et pousser le tag correspondant, par exemple `v0.1.10`.
-4. Le workflow cree ou met a jour la release GitHub, attache `module.json` et `rollcodex-v<version>.zip`, puis publie la version aupres de Foundry si `FOUNDRY_RELEASE_TOKEN` est configure.
-
-Dry-run Foundry manuel:
-
-```bash
-gh workflow run foundry-release.yml --repo Fernail/foundry-rollcodex -f tag=v0.1.10 -f dry_run=true
-```
+Les questions et incidents peuvent etre ouverts depuis l'onglet Issues du depot GitHub.
