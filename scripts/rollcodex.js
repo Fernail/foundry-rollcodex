@@ -1,7 +1,7 @@
 /* global Dialog, FormApplication, Hooks, foundry, game, ui */
 
 const MODULE_ID = 'rollcodex';
-const MODULE_VERSION = '0.1.10';
+const MODULE_VERSION = '0.1.11';
 const DEFAULT_ROLLCODEX_APP_URL = 'http://localhost:5173';
 const MESSAGE_HANDSHAKE_TYPE = 'rollcodex:vtt-pairing-handshake';
 const MESSAGE_HANDSHAKE_RESPONSE_TYPE = 'rollcodex:vtt-pairing-handshake-response';
@@ -446,6 +446,11 @@ async function sendSnapshotPayload({ mode = 'manual', reason = 'manual', skipIfE
   }
 }
 
+function hasPendingSnapshotMessages() {
+  const sinceMessageId = getStoredLastMessageId();
+  return collectChatMessagesSince(sinceMessageId).messages.length > 0;
+}
+
 function shouldSendSessionEndSnapshot() {
   if (!canCurrentUserSendSnapshots()) return false;
   if (!hasStoredConnection()) return false;
@@ -453,13 +458,9 @@ function shouldSendSessionEndSnapshot() {
 
   const settings = getAutoSnapshotSettings();
   if (!settings.enabled) return false;
+  if (!hasPendingSnapshotMessages()) return false;
 
   const now = Date.now();
-  const lastSentAt = Date.parse(settings.lastSentAt || '');
-  if (!Number.isNaN(lastSentAt) && now - lastSentAt < settings.minIntervalMs) {
-    return false;
-  }
-
   if (autoSnapshotState.lastSessionEndSentAtMs && now - autoSnapshotState.lastSessionEndSentAtMs < settings.minIntervalMs) {
     return false;
   }
