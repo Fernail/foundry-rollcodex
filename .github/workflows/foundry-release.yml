@@ -62,7 +62,6 @@ jobs:
         shell: bash
         env:
           TAG: ${{ steps.release.outputs.tag }}
-          RELEASE_SHA: ${{ steps.release.outputs.sha }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
@@ -112,7 +111,7 @@ jobs:
           if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release upload "${TAG}" module.json "${ZIP_NAME}" --repo "${GITHUB_REPOSITORY}" --clobber
           else
-            gh release create "${TAG}" module.json "${ZIP_NAME}" --repo "${GITHUB_REPOSITORY}" --target "${RELEASE_SHA}" --title "RollCodex ${VERSION}" --notes-file release-notes.md
+            gh release create "${TAG}" module.json "${ZIP_NAME}" --repo "${GITHUB_REPOSITORY}" --verify-tag --title "RollCodex ${VERSION}" --notes-file release-notes.md
           fi
 
       - name: Publish release to Foundry
