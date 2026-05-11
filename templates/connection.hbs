@@ -1,0 +1,89 @@
+<form class="rollcodex-connection" autocomplete="off">
+  <header class="rollcodex-connection__header">
+    <div>
+      <p class="rollcodex-connection__eyebrow">RollCodex</p>
+      <h2>Connexion du monde</h2>
+    </div>
+    <span class="rollcodex-connection__status {{#if connected}}is-connected{{else}}is-idle{{/if}}">
+      {{#if connected}}Connecte{{else}}Non connecte{{/if}}
+    </span>
+  </header>
+
+  <section class="rollcodex-connection__section">
+    <label>
+      <span>Adresse RollCodex</span>
+      <input type="url" name="appUrl" value="{{appUrl}}" placeholder="http://localhost:5173" />
+    </label>
+    <p class="notes">Gardez la valeur proposee pour le test local. En production, utilisez l'adresse publique RollCodex.</p>
+    <button type="button" class="rollcodex-button" data-action="save-url">Enregistrer l'adresse</button>
+  </section>
+
+  {{#if connected}}
+    <section class="rollcodex-connection__section rollcodex-connection__summary">
+      <dl>
+        <div>
+          <dt>Registre</dt>
+          <dd>{{workspaceLabel}}</dd>
+        </div>
+        <div>
+          <dt>Systeme</dt>
+          <dd>{{systemLabel}}</dd>
+        </div>
+        <div>
+          <dt>Connexion</dt>
+          <dd>{{connectionId}}</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="rollcodex-connection__section rollcodex-connection__automation">
+      <label class="rollcodex-toggle">
+        <input type="checkbox" name="autoSnapshotEnabled" {{#if autoSnapshotEnabled}}checked{{/if}} />
+        <span>Capture automatique de fin de session</span>
+      </label>
+      <p class="notes">Active par defaut. Foundry tente une capture quand le monde ou l'onglet se ferme, en fin de combat, et apres une periode d'inactivite du chat. Le bouton "Terminer la session" reste le moyen le plus fiable de cloturer une session.</p>
+      {{#if autoSnapshotLastSentAtLabel}}
+        <p class="rollcodex-connection__meta">Derniere capture : {{autoSnapshotLastSentAtLabel}}</p>
+      {{/if}}
+      {{#if autoSnapshotLastError}}
+        <p class="rollcodex-connection__error">Derniere erreur : {{autoSnapshotLastError}}</p>
+      {{/if}}
+    </section>
+  {{/if}}
+
+  <section class="rollcodex-connection__section">
+    <label>
+      <span>Confirmation RollCodex</span>
+      <textarea name="confirmationPayload" rows="4" placeholder="Collez ici la confirmation si Foundry ne la recupere pas automatiquement."></textarea>
+    </label>
+    {{#if hasPendingPairing}}
+      {{#if pendingPairingCode}}
+        <div class="rollcodex-connection__pairing-code">
+          <span>Code de liaison</span>
+          <code>{{pendingPairingCode}}</code>
+        </div>
+      {{/if}}
+      <p class="notes">Demande en attente : {{pendingConnectionId}}. Apres validation dans RollCodex, Foundry interroge l API de statut et finalise la liaison automatiquement. Le bouton Recuperer reste disponible en secours.</p>
+    {{else}}
+      <p class="notes">Cliquez d'abord sur Connecter avec RollCodex pour creer une demande de liaison.</p>
+    {{/if}}
+  </section>
+
+  <footer class="rollcodex-connection__actions">
+    <button type="button" class="rollcodex-button rollcodex-button--primary" data-action="connect">
+      Connecter avec RollCodex
+    </button>
+    <button type="button" class="rollcodex-button" data-action="recover-confirmation">
+      Recuperer la confirmation
+    </button>
+    <button type="button" class="rollcodex-button rollcodex-button--primary" data-action="end-session" {{#unless connected}}disabled{{/unless}}>
+      Terminer la session
+    </button>
+    <button type="button" class="rollcodex-button" data-action="send-snapshot" {{#unless connected}}disabled{{/unless}}>
+      Envoyer une capture maintenant
+    </button>
+    <button type="button" class="rollcodex-button rollcodex-button--danger" data-action="disconnect" {{#unless connected}}disabled{{/unless}}>
+      Oublier la connexion
+    </button>
+  </footer>
+</form>
