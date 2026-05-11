@@ -124,7 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           node <<'NODE'
-          const fs = require('node:fs');
+          import fs from 'node:fs';
           const manifest = JSON.parse(fs.readFileSync('module.json', 'utf8'));
           const dryRun = process.env.EVENT_NAME === 'workflow_dispatch' && process.env.DISPATCH_DRY_RUN === 'true';
           const repo = process.env.GITHUB_REPOSITORY;
