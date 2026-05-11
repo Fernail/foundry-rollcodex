@@ -16,17 +16,15 @@ on:
         default: true
         type: boolean
 
-permissions:
-  contents: write
-
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       EVENT_NAME: ${{ github.event_name }}
       DISPATCH_TAG: ${{ inputs.tag || '' }}
       DISPATCH_DRY_RUN: ${{ inputs.dry_run || 'false' }}
-      FOUNDRY_RELEASE_TOKEN: ${{ secrets.FOUNDRY_RELEASE_TOKEN }}
     steps:
       - name: Checkout module
         uses: actions/checkout@v4
@@ -117,12 +115,16 @@ jobs:
           fi
 
       - name: Publish release to Foundry
-        if: env.FOUNDRY_RELEASE_TOKEN != ''
         shell: bash
         env:
           TAG: ${{ steps.release.outputs.tag }}
+          FOUNDRY_RELEASE_TOKEN: ${{ secrets.FOUNDRY_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
+          if [ -z "${FOUNDRY_RELEASE_TOKEN}" ]; then
+            echo "Foundry release token is not configured. GitHub release assets were published, but Foundry was not notified."
+            exit 0
+          fi
           node <<'NODE'
           import fs from 'node:fs';
           const manifest = JSON.parse(fs.readFileSync('module.json', 'utf8'));
@@ -149,13 +151,7 @@ jobs:
           });
           const text = await response.text();
           if (!response.ok) {
-            console.error(text);
             throw new Error(`Foundry release API failed with HTTP ${response.status}`);
           }
-          console.log(text);
+          console.log(`Foundry release ${dryRun ? 'dry-run validation' : 'publication'} accepted.`);
           NODE
-
-      - name: Warn when Foundry token is missing
-        if: env.FOUNDRY_RELEASE_TOKEN == ''
-        run: |
-          echo "FOUNDRY_RELEASE_TOKEN is not configured. GitHub release assets were published, but Foundry was not notified."

@@ -69,7 +69,39 @@ function registerSetting(key, options) {
 function normalizeAppUrl(value) {
   const trimmed = String(value || '').trim() || DEFAULT_ROLLCODEX_APP_URL;
   const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-  return withProtocol.replace(/\/+$/, '');
+  let url;
+
+  try {
+    url = new URL(withProtocol);
+  } catch (_error) {
+    throw new Error('Adresse RollCodex invalide. Utilisez HTTPS en production ou http://localhost en test local.');
+  }
+
+  if (!['https:', 'http:'].includes(url.protocol)) {
+    throw new Error('Adresse RollCodex invalide. Utilisez HTTPS en production ou http://localhost en test local.');
+  }
+
+  if (url.username || url.password) {
+    throw new Error('Adresse RollCodex invalide. Ne mettez pas d identifiant dans l URL.');
+  }
+
+  const localHttpHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+  if (url.protocol === 'http:' && !localHttpHosts.has(url.hostname.toLowerCase())) {
+    throw new Error('Adresse RollCodex non securisee. Utilisez HTTPS, sauf pour http://localhost en test local.');
+  }
+
+  url.search = '';
+  url.hash = '';
+  return url.toString().replace(/\/+$/, '');
+}
+
+function getLoggableEndpoint(endpoint) {
+  try {
+    const url = new URL(endpoint);
+    return `${url.origin}${url.pathname}`;
+  } catch (_error) {
+    return 'endpoint RollCodex';
+  }
 }
 
 function toBase64Url(bytes) {
@@ -351,11 +383,11 @@ async function postSnapshotPayload(endpoint, snapshotPayload) {
         body,
       });
     } catch (fallbackError) {
-      console.error('[RollCodex] Snapshot network failure', { endpoint, error: fallbackError });
+      console.error('[RollCodex] Snapshot network failure', { endpoint: getLoggableEndpoint(endpoint), error: fallbackError });
       throw new Error('Capture impossible : RollCodex est injoignable depuis Foundry. Verifiez que le serveur RollCodex et la fonction VTT sont accessibles.');
     }
 
-    console.warn('[RollCodex] Snapshot sent without readable CORS response', { endpoint });
+    console.warn('[RollCodex] Snapshot sent without readable CORS response', { endpoint: getLoggableEndpoint(endpoint) });
     return { blockedResponse: true, code: SNAPSHOT_RESPONSE_BLOCKED };
   }
 }
