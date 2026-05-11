@@ -69,7 +69,7 @@ jobs:
         run: |
           set -euo pipefail
           node <<'NODE'
-          const fs = require('node:fs');
+          import fs from 'node:fs';
           const manifest = JSON.parse(fs.readFileSync('module.json', 'utf8'));
           const repo = process.env.GITHUB_REPOSITORY;
           const tag = process.env.TAG;
