@@ -648,6 +648,122 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.rollcodex-floating-panel {
+  background: rgba(24, 19, 16, 0.94);
+  border: 1px solid rgba(207, 154, 76, 0.65);
+  border-radius: 8px;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.42);
+  color: #f7efe1;
+  display: grid;
+  font: 12px/1.35 Arial, sans-serif;
+  gap: 8px;
+  max-height: min(62vh, 420px);
+  max-width: calc(100vw - 24px);
+  overflow: auto;
+  padding: 10px;
+  position: fixed;
+  width: 312px;
+  z-index: 99999;
+}
+
+.rollcodex-floating-panel.is-collapsed {
+  width: 226px;
+}
+
+.rollcodex-floating-panel__header,
+.rollcodex-floating-panel__compact {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.rollcodex-floating-panel__title,
+.rollcodex-floating-panel__compact-body {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.rollcodex-floating-panel__title strong,
+.rollcodex-floating-panel__compact-body strong {
+  font-size: 13px;
+}
+
+.rollcodex-floating-panel__title span,
+.rollcodex-floating-panel__compact-body span,
+.rollcodex-floating-panel__meta {
+  color: #d8c7ad;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rollcodex-floating-panel__drag,
+.rollcodex-floating-panel__action,
+.rollcodex-floating-panel__buttons button {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 5px;
+  color: #f7efe1;
+  cursor: pointer;
+  font-weight: 700;
+  min-height: 27px;
+  padding: 4px 8px;
+}
+
+.rollcodex-floating-panel__drag {
+  cursor: grab;
+}
+
+.rollcodex-floating-panel__metrics {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.rollcodex-floating-panel__metrics span {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  display: grid;
+  min-width: 0;
+  padding: 6px;
+}
+
+.rollcodex-floating-panel__metrics strong {
+  font-size: 15px;
+}
+
+.rollcodex-floating-panel__status,
+.rollcodex-floating-panel__meta {
+  margin: 0;
+}
+
+.rollcodex-floating-panel__status {
+  color: #bce8c4;
+}
+
+.rollcodex-floating-panel__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rollcodex-floating-panel__buttons button[data-rollcodex-floating-end] {
+  background: #8a4a31;
+  border-color: #a86042;
+}
+
+.rollcodex-floating-panel__buttons button[data-rollcodex-floating-send] {
+  background: #385f8f;
+  border-color: #4d75a8;
+}
+
+.rollcodex-floating-panel__buttons button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 @media (max-width: 680px) {
   .rollcodex-live__totals,
   .rollcodex-mapping__grid {
