@@ -1,0 +1,73 @@
+<form class="rollcodex-mapping" autocomplete="off">
+  <header class="rollcodex-mapping__header">
+    <div>
+      <p class="rollcodex-connection__eyebrow">RollCodex</p>
+      <h2>{{name}}</h2>
+    </div>
+  </header>
+
+  {{#if isActor}}
+    <section class="rollcodex-mapping__section">
+      <label>
+        <span>Type d'acteur</span>
+        <select name="actorKind">
+          {{#each actorKindOptions}}
+            <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </label>
+      <label>
+        <span>Speaker affiche</span>
+        <input type="text" name="speakerAlias" value="{{speakerAlias}}" placeholder="Nom utilise dans le kikimeter" />
+      </label>
+      <div class="rollcodex-mapping__grid">
+        <label>
+          <span>Classe</span>
+          <input type="text" name="actorClass" value="{{actorClass}}" />
+        </label>
+        <label>
+          <span>Sous-classe</span>
+          <input type="text" name="actorSubclass" value="{{actorSubclass}}" />
+        </label>
+      </div>
+      <div class="rollcodex-mapping__grid">
+        <label>
+          <span>Race / espece</span>
+          <input type="text" name="actorSpecies" value="{{actorSpecies}}" />
+        </label>
+        <label>
+          <span>Niveau</span>
+          <input type="number" name="actorLevel" value="{{actorLevel}}" min="0" step="1" />
+        </label>
+      </div>
+      <p class="notes">Ces informations restent stockees dans le monde Foundry. Elles aident le kikimeter local et sont jointes aux captures comme suggestions de revue RollCodex.</p>
+    </section>
+  {{/if}}
+
+  {{#if isItem}}
+    <section class="rollcodex-mapping__section">
+      <label>
+        <span>Type d'action</span>
+        <select name="actionType">
+          {{#each actionTypeOptions}}
+            <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+          {{/each}}
+        </select>
+      </label>
+      <label>
+        <span>Nom canonique</span>
+        <input type="text" name="actionName" value="{{actionName}}" placeholder="Nom a afficher dans les metriques" />
+      </label>
+      <label>
+        <span>Tags</span>
+        <input type="text" name="actionTags" value="{{actionTags}}" placeholder="spell, aoe, melee" />
+      </label>
+      <p class="notes">Le type d'action pilote les compteurs locaux. Utilisez Auto quand le systeme Foundry suffit.</p>
+    </section>
+  {{/if}}
+
+  <footer class="rollcodex-connection__actions">
+    <button type="submit" class="rollcodex-button rollcodex-button--primary">Enregistrer</button>
+    <button type="button" class="rollcodex-button" data-action="clear-mapping">Effacer</button>
+  </footer>
+</form>

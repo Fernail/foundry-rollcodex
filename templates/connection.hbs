@@ -51,6 +51,24 @@
     </section>
   {{/if}}
 
+  <section class="rollcodex-connection__section rollcodex-connection__live">
+    <label class="rollcodex-toggle">
+      <input type="checkbox" name="liveMetricsEnabled" {{#if liveMetricsEnabled}}checked{{/if}} />
+      <span>Metriques live locales</span>
+    </label>
+    <p class="notes">Affiche un kikimeter Foundry en memoire. Ces metriques n'ecrivent pas dans RollCodex ; les captures restent relues avant import.</p>
+    <div class="rollcodex-connection__metrics">
+      <span class="rollcodex-pill rollcodex-pill--accent">Jets {{liveMetrics.totals.rolls}}</span>
+      <span class="rollcodex-pill">Degats {{liveMetrics.totals.damage}}</span>
+      <span class="rollcodex-pill">Soins {{liveMetrics.totals.healing}}</span>
+      <span class="rollcodex-pill rollcodex-pill--muted">Speakers {{#if liveMetrics.hasParticipants}}{{liveMetrics.participants.length}}{{else}}0{{/if}}</span>
+    </div>
+    <div class="rollcodex-connection__actions">
+      <button type="button" class="rollcodex-button" data-action="open-live-metrics">Ouvrir le kikimeter</button>
+      <button type="button" class="rollcodex-button" data-action="reset-live-metrics">Remettre a zero</button>
+    </div>
+  </section>
+
   <section class="rollcodex-connection__section">
     <label>
       <span>Confirmation RollCodex</span>

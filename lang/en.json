@@ -78,9 +78,14 @@
   "ROLLCODEX.settings.appUrlHint": "Address of the RollCodex application to open when connecting this world.",
   "ROLLCODEX.settings.autoEnabledName": "RollCodex automatic captures",
   "ROLLCODEX.settings.autoEnabledHint": "Attempts a capture when the world or Foundry tab closes.",
+  "ROLLCODEX.settings.liveMetricsName": "RollCodex live metrics",
+  "ROLLCODEX.settings.liveMetricsHint": "Shows a local Foundry meter without writing to RollCodex.",
   "ROLLCODEX.settings.idleMinutesName": "Chat idle before capture (minutes)",
   "ROLLCODEX.settings.idleMinutesHint": "If no chat message is sent during this time, RollCodex triggers a capture. Set to 0 to disable.",
   "ROLLCODEX.settings.menuName": "RollCodex connection",
   "ROLLCODEX.settings.menuLabel": "Connect with RollCodex",
-  "ROLLCODEX.settings.menuHint": "Link this Foundry world to a RollCodex registry."
+  "ROLLCODEX.settings.menuHint": "Link this Foundry world to a RollCodex registry.",
+  "ROLLCODEX.settings.liveMenuName": "RollCodex live metrics",
+  "ROLLCODEX.settings.liveMenuLabel": "Open meter",
+  "ROLLCODEX.settings.liveMenuHint": "Show local metrics for this Foundry session."
 }

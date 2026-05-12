@@ -1,0 +1,104 @@
+<form class="rollcodex-live" autocomplete="off">
+  <header class="rollcodex-live__header">
+    <div>
+      <p class="rollcodex-connection__eyebrow">RollCodex</p>
+      <h2>Metriques live</h2>
+    </div>
+    <label class="rollcodex-toggle">
+      <input type="checkbox" name="liveMetricsEnabled" {{#if enabled}}checked{{/if}} />
+      <span>Actif</span>
+    </label>
+  </header>
+
+  <section class="rollcodex-live__totals">
+    <div>
+      <span>Messages</span>
+      <strong>{{totals.messages}}</strong>
+    </div>
+    <div>
+      <span>Jets</span>
+      <strong>{{totals.rolls}}</strong>
+    </div>
+    <div>
+      <span>Degats</span>
+      <strong>{{totals.damage}}</strong>
+    </div>
+    <div>
+      <span>Soins</span>
+      <strong>{{totals.healing}}</strong>
+    </div>
+    <div>
+      <span>Critiques</span>
+      <strong>{{totals.criticals}}</strong>
+    </div>
+    <div>
+      <span>Echecs</span>
+      <strong>{{totals.fumbles}}</strong>
+    </div>
+  </section>
+
+  <section class="rollcodex-live__section">
+    <div class="rollcodex-live__section-header">
+      <h3>Classement</h3>
+      {{#if startedAtLabel}}<span>Depuis {{startedAtLabel}}</span>{{/if}}
+    </div>
+    {{#if hasParticipants}}
+      <div class="rollcodex-live__table">
+        <div class="rollcodex-live__row rollcodex-live__row--head">
+          <span>Speaker</span>
+          <span>Type</span>
+          <span>Jets</span>
+          <span>Degats</span>
+          <span>Soins</span>
+          <span>Top action</span>
+          <span></span>
+        </div>
+        {{#each participants}}
+          <div class="rollcodex-live__row">
+            <span>{{speaker}}</span>
+            <span>{{actorKindLabel}}</span>
+            <span>{{rollsLabel}}</span>
+            <span>{{damageLabel}}</span>
+            <span>{{healingLabel}}</span>
+            <span>{{topActionLabel}}</span>
+            <span>
+              {{#if actorId}}
+                <button type="button" class="rollcodex-button rollcodex-button--icon" data-action="configure-actor" data-actor-id="{{actorId}}" title="Configurer l'acteur RollCodex">
+                  <i class="fas fa-tags"></i>
+                </button>
+              {{/if}}
+            </span>
+          </div>
+        {{/each}}
+      </div>
+    {{else}}
+      <p class="notes">Aucun message observe depuis l'ouverture ou la remise a zero.</p>
+    {{/if}}
+  </section>
+
+  <section class="rollcodex-live__section">
+    <div class="rollcodex-live__section-header">
+      <h3>Derniers evenements</h3>
+    </div>
+    {{#if hasRecentEvents}}
+      <div class="rollcodex-live__events">
+        {{#each recentEvents}}
+          <div class="rollcodex-live__event">
+            <strong>{{speaker}}</strong>
+            <span>{{actionName}}</span>
+            <em>{{actionTypeLabel}}</em>
+            {{#if rollTotal}}<code>Jet {{rollTotal}}</code>{{/if}}
+            {{#if damage}}<code>Degats {{damage}}</code>{{/if}}
+            {{#if healing}}<code>Soin {{healing}}</code>{{/if}}
+          </div>
+        {{/each}}
+      </div>
+    {{else}}
+      <p class="notes">Les prochains messages Foundry apparaitront ici.</p>
+    {{/if}}
+  </section>
+
+  <footer class="rollcodex-connection__actions">
+    <button type="button" class="rollcodex-button" data-action="reset-live-metrics">Remettre a zero</button>
+  </footer>
+</form>

@@ -31,6 +31,30 @@ Quand le module sera reference dans le catalogue Foundry, l'installation pourra 
 
 Le module envoie des captures VTT a relire. RollCodex ne transforme pas automatiquement ces donnees en narration et ne pretend pas deduire un contexte de jeu absent des logs.
 
+## Metriques live locales
+
+Le module fournit aussi un kikimeter local dans Foundry. Il lit les messages et
+jets de la session en cours, puis affiche des compteurs volatils par speaker ou
+acteur : jets, degats, soins, critiques et activite recente.
+
+Ces metriques ne sont pas envoyees en direct a RollCodex et n'ecrivent pas dans
+les evenements importes. Elles peuvent etre remises a zero depuis le panneau
+RollCodex ou depuis le menu des parametres du module.
+
+## Mapping Foundry
+
+Les fiches Actor et Item disposent d'un bouton RollCodex dans leur en-tete.
+Il permet de stocker localement, dans les flags Foundry du monde :
+
+- le type d'acteur : PJ, PNJ, monstre, invocation, environnement ;
+- l'alias speaker a utiliser dans les metriques ;
+- la classe, sous-classe, race/espece et niveau quand le systeme ne les expose pas clairement ;
+- le type d'action d'un item : attaque, degats, soin, sauvegarde, test, sort, ressource ou utilitaire.
+
+Ce mapping aide le kikimeter local. Il est aussi joint aux captures comme
+contexte de revue afin que RollCodex puisse proposer des rapprochements, sans
+les appliquer automatiquement comme verite definitive.
+
 ## Support
 
 Les questions et incidents peuvent etre ouverts depuis l'onglet Issues du depot GitHub.

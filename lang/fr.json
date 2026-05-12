@@ -78,9 +78,14 @@
   "ROLLCODEX.settings.appUrlHint": "Adresse de l'application RollCodex à ouvrir pour connecter ce monde.",
   "ROLLCODEX.settings.autoEnabledName": "Captures automatiques RollCodex",
   "ROLLCODEX.settings.autoEnabledHint": "Tente une capture de fin de session quand le monde ou l'onglet Foundry se ferme.",
+  "ROLLCODEX.settings.liveMetricsName": "Métriques live RollCodex",
+  "ROLLCODEX.settings.liveMetricsHint": "Affiche un kikimeter local dans Foundry sans écrire dans RollCodex.",
   "ROLLCODEX.settings.idleMinutesName": "Inactivité chat avant capture (minutes)",
   "ROLLCODEX.settings.idleMinutesHint": "Si aucun message n'est envoyé pendant cette durée, RollCodex déclenche une capture. Mettez 0 pour désactiver.",
   "ROLLCODEX.settings.menuName": "Connexion RollCodex",
   "ROLLCODEX.settings.menuLabel": "Connecter avec RollCodex",
-  "ROLLCODEX.settings.menuHint": "Relier ce monde Foundry à un registre RollCodex."
+  "ROLLCODEX.settings.menuHint": "Relier ce monde Foundry à un registre RollCodex.",
+  "ROLLCODEX.settings.liveMenuName": "Métriques live RollCodex",
+  "ROLLCODEX.settings.liveMenuLabel": "Ouvrir le kikimeter",
+  "ROLLCODEX.settings.liveMenuHint": "Afficher les métriques locales de cette session Foundry."
 }

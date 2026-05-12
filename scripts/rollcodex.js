@@ -14,6 +14,45 @@ const DEFAULT_IDLE_MINUTES = 45;
 const MAPPING_PROFILE_TTL_MS = 30 * 60 * 1000;
 const LIVE_MAX_HINTS = 512;
 const LIVE_MAX_SOURCES = 256;
+const LIVE_METRICS_RECENT_EVENTS_LIMIT = 12;
+const LIVE_METRICS_REFRESH_MS = 250;
+const ROLLCODEX_MAPPING_VERSION = 1;
+
+const ACTOR_KIND_OPTIONS = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'pc', label: 'PJ' },
+  { value: 'npc', label: 'PNJ' },
+  { value: 'monster', label: 'Monstre' },
+  { value: 'summon', label: 'Invocation' },
+  { value: 'environment', label: 'Environnement' },
+  { value: 'ignored', label: 'Ignore' },
+];
+
+const ITEM_ACTION_TYPE_OPTIONS = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'attack', label: 'Attaque' },
+  { value: 'damage', label: 'Degats' },
+  { value: 'healing', label: 'Soin' },
+  { value: 'save', label: 'Jet de sauvegarde' },
+  { value: 'check', label: 'Test' },
+  { value: 'spell', label: 'Sort' },
+  { value: 'resource', label: 'Ressource' },
+  { value: 'utility', label: 'Utilitaire' },
+  { value: 'other', label: 'Autre' },
+  { value: 'ignored', label: 'Ignore' },
+];
+
+const FLAGS = {
+  actorKind: 'actorKind',
+  actorSpeakerAlias: 'actorSpeakerAlias',
+  actorClass: 'actorClass',
+  actorSubclass: 'actorSubclass',
+  actorSpecies: 'actorSpecies',
+  actorLevel: 'actorLevel',
+  itemActionType: 'itemActionType',
+  itemActionName: 'itemActionName',
+  itemTags: 'itemTags',
+};
 
 const SETTINGS = {
   appUrl: 'appUrl',
@@ -39,6 +78,7 @@ const SETTINGS = {
   autoSnapshotLastError: 'autoSnapshotLastError',
   mappingProfileCache: 'mappingProfileCache',
   mappingProfileFetchedAt: 'mappingProfileFetchedAt',
+  liveMetricsEnabled: 'liveMetricsEnabled',
 };
 
 const CLIENT_SCOPED_SETTINGS = new Set([
@@ -48,10 +88,12 @@ const CLIENT_SCOPED_SETTINGS = new Set([
   SETTINGS.pendingState,
   SETTINGS.pendingPairingStatusEndpoint,
   SETTINGS.pendingPairingCode,
+  SETTINGS.liveMetricsEnabled,
 ]);
 
 const activeConnectionApps = new Set();
 const activeLivePanels = new Set();
+const activeLiveMetricsApps = new Set();
 
 const autoSnapshotState = {
   hookRegistered: false,
@@ -77,6 +119,27 @@ const mappingProfileState = {
   lastFetchError: '',
   inFlight: null,
 };
+
+const liveMetricsState = {
+  hookRegistered: false,
+  refreshTimer: null,
+  startedAt: null,
+  messageIds: new Set(),
+  participants: new Map(),
+  recentEvents: [],
+  totals: createEmptyLiveMetricTotals(),
+};
+
+function createEmptyLiveMetricTotals() {
+  return {
+    messages: 0,
+    rolls: 0,
+    criticals: 0,
+    fumbles: 0,
+    damage: 0,
+    healing: 0,
+  };
+}
 
 function registerSetting(key, options) {
   game.settings.register(MODULE_ID, key, {
@@ -178,6 +241,207 @@ function stripHtml(value) {
   return (html.textContent || html.innerText || '').trim();
 }
 
+function normalizeString(value) {
+  const normalized = String(value ?? '').trim();
+  return normalized || '';
+}
+
+function normalizeNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function readPath(object, path) {
+  if (!object || !path) return undefined;
+  if (foundry?.utils?.getProperty) return foundry.utils.getProperty(object, path);
+  return String(path).split('.').reduce((value, key) => (value == null ? undefined : value[key]), object);
+}
+
+function getCollectionEntries(collection) {
+  if (!collection) return [];
+  if (Array.isArray(collection)) return collection;
+  if (Array.isArray(collection.contents)) return collection.contents;
+  if (typeof collection.values === 'function') return Array.from(collection.values());
+  return [];
+}
+
+function getCollectionDocument(collection, id) {
+  if (!collection || !id) return null;
+  if (typeof collection.get === 'function') return collection.get(id) || null;
+  return getCollectionEntries(collection).find((entry) => String(entry?.id || entry?._id || '') === String(id)) || null;
+}
+
+function getDocumentId(documentLike) {
+  return normalizeString(documentLike?.id || documentLike?._id);
+}
+
+function getDocumentName(documentLike, fallback = '') {
+  return normalizeString(documentLike?.name || documentLike?.label || fallback);
+}
+
+function readDocumentFlag(documentLike, key) {
+  if (!documentLike || !key) return '';
+  if (typeof documentLike.getFlag === 'function') return normalizeString(documentLike.getFlag(MODULE_ID, key));
+  return normalizeString(readPath(documentLike, `flags.${MODULE_ID}.${key}`));
+}
+
+function normalizeActorKind(value) {
+  const normalized = normalizeString(value).toLowerCase();
+  return ACTOR_KIND_OPTIONS.some((option) => option.value === normalized) ? normalized : 'auto';
+}
+
+function normalizeItemActionType(value) {
+  const normalized = normalizeString(value).toLowerCase();
+  return ITEM_ACTION_TYPE_OPTIONS.some((option) => option.value === normalized) ? normalized : 'auto';
+}
+
+function inferActorKind(actor) {
+  const configured = normalizeActorKind(readDocumentFlag(actor, FLAGS.actorKind));
+  if (configured && configured !== 'auto') return configured;
+
+  const actorType = normalizeString(actor?.type).toLowerCase();
+  if (actorType === 'character') return 'pc';
+  if (actorType === 'npc') return actor?.hasPlayerOwner ? 'npc' : 'monster';
+  if (actorType === 'loot' || actorType === 'vehicle' || actorType === 'hazard') return 'environment';
+  if (actor?.hasPlayerOwner) return 'pc';
+  return 'npc';
+}
+
+function getActorSpeakerAlias(actor, fallback = '') {
+  return readDocumentFlag(actor, FLAGS.actorSpeakerAlias) || getDocumentName(actor, fallback);
+}
+
+function resolveMessageUser(message) {
+  const rawUser = message?.user || message?.userId || message?.author;
+  if (!rawUser) return null;
+  if (typeof rawUser === 'object') return rawUser;
+  return getCollectionDocument(game.users, rawUser);
+}
+
+function resolveMessageActor(message) {
+  if (message?.actor) return message.actor;
+  const actorId = normalizeString(message?.speaker?.actor || readPath(message, 'flags.core.actorId'));
+  return getCollectionDocument(game.actors, actorId);
+}
+
+function resolveMessageItem(message, actor) {
+  if (message?.item) return message.item;
+
+  const directItem = readPath(message, 'flags.dnd5e.item') || readPath(message, 'flags.pf2e.origin.item');
+  if (directItem?.id || directItem?._id || directItem?.name) return directItem;
+
+  const itemId = normalizeString(
+    readPath(message, 'flags.dnd5e.itemId')
+    || readPath(message, 'flags.dnd5e.use.itemId')
+    || readPath(message, 'flags.dnd5e.roll.itemId')
+    || readPath(message, 'flags.pf2e.origin.itemId'),
+  );
+  if (actor && itemId) return getCollectionDocument(actor.items, itemId);
+  return null;
+}
+
+function getMessageRolls(message) {
+  const rolls = getCollectionEntries(message?.rolls);
+  if (rolls.length) return rolls;
+  if (message?.roll) return [message.roll];
+  const flagRolls = readPath(message, 'flags.dnd5e.rolls');
+  return getCollectionEntries(flagRolls);
+}
+
+function getRollTotal(roll) {
+  return normalizeNumber(roll?.total ?? roll?._total ?? roll?.result);
+}
+
+function getD20Results(roll) {
+  const dice = getCollectionEntries(roll?.dice).length ? getCollectionEntries(roll.dice) : getCollectionEntries(roll?.terms);
+  const results = [];
+  dice.forEach((die) => {
+    const faces = Number(die?.faces);
+    if (faces !== 20) return;
+    getCollectionEntries(die?.results).forEach((result) => {
+      if (result?.discarded || result?.rerolled) return;
+      const value = normalizeNumber(result?.result ?? result?.value);
+      if (value !== null) results.push(value);
+    });
+  });
+  return results;
+}
+
+function inferActionType({ item, rawText, rolls }) {
+  const configured = normalizeItemActionType(readDocumentFlag(item, FLAGS.itemActionType));
+  if (configured && configured !== 'auto') return configured;
+
+  const itemType = normalizeString(item?.type).toLowerCase();
+  const text = normalizeString(rawText).toLowerCase();
+  if (/heal|healing|soin|soigne|restaure|regain/.test(text)) return 'healing';
+  if (/damage|dmg|degat|degats|dégât|dégâts|blessure/.test(text)) return 'damage';
+  if (/saving throw|jet de sauvegarde|sauvegarde/.test(text)) return 'save';
+  if (/ability check|skill check|test de competence|test de compétence|test /.test(text)) return 'check';
+  if (itemType === 'spell') return 'spell';
+  if (itemType === 'weapon') return 'attack';
+  if (itemType === 'feat') return 'utility';
+  return rolls.length ? 'attack' : 'other';
+}
+
+function getActionName(item, rawText, fallback = 'Action') {
+  return readDocumentFlag(item, FLAGS.itemActionName) || getDocumentName(item) || normalizeString(rawText).slice(0, 64) || fallback;
+}
+
+function sumRollTotals(rolls) {
+  return rolls.reduce((total, roll) => {
+    const value = getRollTotal(roll);
+    return value === null ? total : total + value;
+  }, 0);
+}
+
+function inferAmountFromText(rawText) {
+  const matches = normalizeString(rawText).match(/\b\d{1,4}\b/g) || [];
+  if (!matches.length) return 0;
+  const last = Number(matches[matches.length - 1]);
+  return Number.isFinite(last) ? last : 0;
+}
+
+function createParticipant({ key, speaker, actor, actorKind, user }) {
+  return {
+    key,
+    speaker,
+    actorId: getDocumentId(actor),
+    actorName: getDocumentName(actor),
+    actorKind,
+    userId: getDocumentId(user),
+    userName: getDocumentName(user),
+    messages: 0,
+    rolls: 0,
+    criticals: 0,
+    fumbles: 0,
+    damage: 0,
+    healing: 0,
+    actions: new Map(),
+  };
+}
+
+function getParticipantKey({ actor, user, speaker }) {
+  const actorId = getDocumentId(actor);
+  if (actorId) return `actor:${actorId}`;
+  const userId = getDocumentId(user);
+  if (userId) return `user:${userId}`;
+  return `speaker:${speaker || 'unknown'}`;
+}
+
+function formatMetricNumber(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return '0';
+  return number.toLocaleString('fr-FR', { maximumFractionDigits: 0 });
+}
+
+function getActorKindLabel(kind) {
+  return ACTOR_KIND_OPTIONS.find((option) => option.value === kind)?.label || 'Auto';
+}
+
+function getActionTypeLabel(type) {
+  return ITEM_ACTION_TYPE_OPTIONS.find((option) => option.value === type)?.label || 'Autre';
+}
+
 function getWorldMetadata() {
   return {
     foundry_world_id: game.world?.id || '',
@@ -186,6 +450,187 @@ function getWorldMetadata() {
     foundry_system_title: game.system?.title || game.system?.id || '',
     foundry_version: game.version || '',
     module_version: MODULE_VERSION,
+  };
+}
+
+function readActorClass(actor) {
+  return readDocumentFlag(actor, FLAGS.actorClass)
+    || normalizeString(readPath(actor, 'system.details.class'))
+    || normalizeString(readPath(actor, 'system.details.classes'));
+}
+
+function readActorSubclass(actor) {
+  return readDocumentFlag(actor, FLAGS.actorSubclass)
+    || normalizeString(readPath(actor, 'system.details.subclass'));
+}
+
+function readActorSpecies(actor) {
+  return readDocumentFlag(actor, FLAGS.actorSpecies)
+    || normalizeString(readPath(actor, 'system.details.race'))
+    || normalizeString(readPath(actor, 'system.details.species'))
+    || normalizeString(readPath(actor, 'system.details.ancestry.name'));
+}
+
+function readActorLevel(actor) {
+  const configured = normalizeNumber(readDocumentFlag(actor, FLAGS.actorLevel));
+  if (configured !== null) return configured;
+  return normalizeNumber(readPath(actor, 'system.details.level') || readPath(actor, 'system.attributes.level'));
+}
+
+function getActorPlayerUserIds(actor) {
+  if (!actor) return [];
+  return getCollectionEntries(game.users)
+    .filter((user) => !user?.isGM)
+    .filter((user) => {
+      if (typeof actor.testUserPermission === 'function') return actor.testUserPermission(user, 'OWNER');
+      const ownership = actor.ownership || actor.data?.permission || {};
+      return Number(ownership[user.id] || 0) >= 3;
+    })
+    .map((user) => getDocumentId(user))
+    .filter(Boolean);
+}
+
+function actorHasRollCodexFlags(actor) {
+  return Boolean(
+    readDocumentFlag(actor, FLAGS.actorKind)
+    || readDocumentFlag(actor, FLAGS.actorSpeakerAlias)
+    || readDocumentFlag(actor, FLAGS.actorClass)
+    || readDocumentFlag(actor, FLAGS.actorSubclass)
+    || readDocumentFlag(actor, FLAGS.actorSpecies)
+    || readDocumentFlag(actor, FLAGS.actorLevel),
+  );
+}
+
+function itemHasRollCodexFlags(item) {
+  return Boolean(
+    readDocumentFlag(item, FLAGS.itemActionType)
+    || readDocumentFlag(item, FLAGS.itemActionName)
+    || readDocumentFlag(item, FLAGS.itemTags),
+  );
+}
+
+function buildActorMappingRecord(actor) {
+  if (!actor) return null;
+  const actorId = getDocumentId(actor);
+  if (!actorId) return null;
+  const kind = inferActorKind(actor);
+  const speakerAlias = getActorSpeakerAlias(actor, getDocumentName(actor));
+  return {
+    id: actorId,
+    name: getDocumentName(actor),
+    kind,
+    foundry_type: normalizeString(actor.type),
+    speaker_alias: speakerAlias,
+    class: readActorClass(actor) || null,
+    subclass: readActorSubclass(actor) || null,
+    species: readActorSpecies(actor) || null,
+    level: readActorLevel(actor),
+    player_user_ids: getActorPlayerUserIds(actor),
+  };
+}
+
+function buildItemMappingRecord(item, actor = null) {
+  if (!item) return null;
+  const itemId = getDocumentId(item);
+  if (!itemId) return null;
+  return {
+    id: itemId,
+    actor_id: getDocumentId(actor) || null,
+    name: getDocumentName(item),
+    foundry_type: normalizeString(item.type),
+    action_type: normalizeItemActionType(readDocumentFlag(item, FLAGS.itemActionType)),
+    canonical_action_name: readDocumentFlag(item, FLAGS.itemActionName) || getDocumentName(item),
+    tags: readDocumentFlag(item, FLAGS.itemTags)
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean),
+  };
+}
+
+function shouldIncludeActorInRoster(actor) {
+  if (!actor) return false;
+  if (actorHasRollCodexFlags(actor)) return true;
+  if (actor.hasPlayerOwner) return true;
+  return inferActorKind(actor) === 'pc';
+}
+
+function buildRollCodexRosterSnapshot() {
+  const actors = {};
+  getCollectionEntries(game.actors).forEach((actor) => {
+    if (!shouldIncludeActorInRoster(actor)) return;
+    const record = buildActorMappingRecord(actor);
+    if (record) actors[record.id] = record;
+  });
+
+  const users = {};
+  getCollectionEntries(game.users).forEach((user) => {
+    const userId = getDocumentId(user);
+    if (!userId) return;
+    users[userId] = {
+      id: userId,
+      name: getDocumentName(user),
+      role: user?.isGM ? 'gm' : 'player',
+      active: Boolean(user?.active),
+    };
+  });
+
+  return { actors, users };
+}
+
+function buildRollCodexMappingSnapshot() {
+  const actors = {};
+  const items = {};
+  const speakers = {};
+
+  getCollectionEntries(game.actors).forEach((actor) => {
+    const actorRecord = buildActorMappingRecord(actor);
+    if (actorRecord && actorHasRollCodexFlags(actor)) {
+      actors[actorRecord.id] = actorRecord;
+      if (actorRecord.speaker_alias) {
+        speakers[actorRecord.speaker_alias] = {
+          actor_id: actorRecord.id,
+          kind: actorRecord.kind,
+        };
+      }
+    }
+
+    getCollectionEntries(actor?.items).forEach((item) => {
+      if (!itemHasRollCodexFlags(item)) return;
+      const itemRecord = buildItemMappingRecord(item, actor);
+      if (itemRecord) items[`${actorRecord?.id || 'world'}:${itemRecord.id}`] = itemRecord;
+    });
+  });
+
+  return {
+    version: ROLLCODEX_MAPPING_VERSION,
+    actors,
+    items,
+    speakers,
+  };
+}
+
+function serializeRollForSnapshot(roll) {
+  if (!roll) return null;
+  return {
+    formula: normalizeString(roll.formula),
+    total: getRollTotal(roll),
+    d20: getD20Results(roll),
+  };
+}
+
+function buildMessageRollSnapshot(message, { actor, item, rawText }) {
+  const rolls = getMessageRolls(message).map((roll) => serializeRollForSnapshot(roll)).filter(Boolean);
+  if (!rolls.length && !actor && !item) return null;
+  const actionType = inferActionType({ item, rawText, rolls: getMessageRolls(message) });
+  return {
+    actor_id: getDocumentId(actor) || null,
+    actor_name: getDocumentName(actor) || null,
+    actor_kind: actor ? inferActorKind(actor) : null,
+    item_id: getDocumentId(item) || null,
+    item_name: getDocumentName(item) || null,
+    action_type: actionType,
+    action_name: getActionName(item, rawText, ''),
+    rolls,
   };
 }
 
@@ -280,6 +725,131 @@ function refreshConnectionApps() {
   activeConnectionApps.forEach((app) => app.render(false));
 }
 
+function refreshLiveMetricsApps() {
+  activeLiveMetricsApps.forEach((app) => app.render(false));
+  refreshConnectionApps();
+}
+
+function scheduleLiveMetricsRefresh() {
+  if (liveMetricsState.refreshTimer) return;
+  liveMetricsState.refreshTimer = window.setTimeout(() => {
+    liveMetricsState.refreshTimer = null;
+    refreshLiveMetricsApps();
+  }, LIVE_METRICS_REFRESH_MS);
+}
+
+function resetLiveMetricsState() {
+  liveMetricsState.startedAt = new Date().toISOString();
+  liveMetricsState.messageIds = new Set();
+  liveMetricsState.participants = new Map();
+  liveMetricsState.recentEvents = [];
+  liveMetricsState.totals = createEmptyLiveMetricTotals();
+  scheduleLiveMetricsRefresh();
+}
+
+function recordLiveMetricsFromMessage(message) {
+  if (!game.settings.get(MODULE_ID, SETTINGS.liveMetricsEnabled)) return;
+  if (!message) return;
+
+  const messageId = normalizeString(message.id || message._id || `${message.timestamp || Date.now()}:${Math.random()}`);
+  if (liveMetricsState.messageIds.has(messageId)) return;
+  liveMetricsState.messageIds.add(messageId);
+  if (!liveMetricsState.startedAt) liveMetricsState.startedAt = new Date().toISOString();
+
+  const rawText = stripHtml(message.content || '');
+  const actor = resolveMessageActor(message);
+  const item = resolveMessageItem(message, actor);
+  const user = resolveMessageUser(message);
+  const rolls = getMessageRolls(message);
+  const actorKind = inferActorKind(actor);
+  const actionType = inferActionType({ item, rawText, rolls });
+  if (actorKind === 'ignored' || actionType === 'ignored') return;
+
+  const speaker = getActorSpeakerAlias(actor, message.speaker?.alias || message.alias || getDocumentName(user, 'Foundry'));
+  const actionName = getActionName(item, rawText, rolls.length ? 'Jet' : 'Message');
+  const key = getParticipantKey({ actor, user, speaker });
+  const participant = liveMetricsState.participants.get(key)
+    || createParticipant({ key, speaker, actor, actorKind, user });
+
+  const d20Results = rolls.flatMap((roll) => getD20Results(roll));
+  const criticals = d20Results.filter((value) => value === 20).length;
+  const fumbles = d20Results.filter((value) => value === 1).length;
+  const rollTotal = sumRollTotals(rolls);
+  const amountFromText = inferAmountFromText(rawText);
+  const damage = actionType === 'damage' ? (rollTotal || amountFromText) : 0;
+  const healing = actionType === 'healing' ? (rollTotal || amountFromText) : 0;
+
+  participant.speaker = speaker;
+  participant.actorKind = actorKind;
+  participant.messages += 1;
+  participant.rolls += rolls.length;
+  participant.criticals += criticals;
+  participant.fumbles += fumbles;
+  participant.damage += damage;
+  participant.healing += healing;
+  participant.actions.set(actionName, (participant.actions.get(actionName) || 0) + 1);
+  liveMetricsState.participants.set(key, participant);
+
+  liveMetricsState.totals.messages += 1;
+  liveMetricsState.totals.rolls += rolls.length;
+  liveMetricsState.totals.criticals += criticals;
+  liveMetricsState.totals.fumbles += fumbles;
+  liveMetricsState.totals.damage += damage;
+  liveMetricsState.totals.healing += healing;
+
+  liveMetricsState.recentEvents.unshift({
+    id: messageId,
+    speaker,
+    actorId: getDocumentId(actor),
+    itemId: getDocumentId(item),
+    actionName,
+    actionType,
+    actionTypeLabel: getActionTypeLabel(actionType),
+    rollTotal: rolls.length ? formatMetricNumber(rollTotal) : '',
+    damage: damage ? formatMetricNumber(damage) : '',
+    healing: healing ? formatMetricNumber(healing) : '',
+  });
+  liveMetricsState.recentEvents = liveMetricsState.recentEvents.slice(0, LIVE_METRICS_RECENT_EVENTS_LIMIT);
+  scheduleLiveMetricsRefresh();
+}
+
+function summarizeLiveMetricsForTemplate() {
+  const participants = Array.from(liveMetricsState.participants.values())
+    .sort((left, right) => (right.damage + right.healing + right.rolls) - (left.damage + left.healing + left.rolls))
+    .map((participant) => {
+      const topAction = Array.from(participant.actions.entries())
+        .sort((left, right) => right[1] - left[1])[0];
+      return {
+        ...participant,
+        actorKindLabel: getActorKindLabel(participant.actorKind),
+        messagesLabel: formatMetricNumber(participant.messages),
+        rollsLabel: formatMetricNumber(participant.rolls),
+        criticalsLabel: formatMetricNumber(participant.criticals),
+        fumblesLabel: formatMetricNumber(participant.fumbles),
+        damageLabel: formatMetricNumber(participant.damage),
+        healingLabel: formatMetricNumber(participant.healing),
+        topActionLabel: topAction ? `${topAction[0]} (${topAction[1]})` : '-',
+      };
+    });
+
+  return {
+    enabled: Boolean(game.settings.get(MODULE_ID, SETTINGS.liveMetricsEnabled)),
+    startedAtLabel: formatDateTime(liveMetricsState.startedAt),
+    hasParticipants: participants.length > 0,
+    participants,
+    recentEvents: liveMetricsState.recentEvents,
+    hasRecentEvents: liveMetricsState.recentEvents.length > 0,
+    totals: {
+      messages: formatMetricNumber(liveMetricsState.totals.messages),
+      rolls: formatMetricNumber(liveMetricsState.totals.rolls),
+      criticals: formatMetricNumber(liveMetricsState.totals.criticals),
+      fumbles: formatMetricNumber(liveMetricsState.totals.fumbles),
+      damage: formatMetricNumber(liveMetricsState.totals.damage),
+      healing: formatMetricNumber(liveMetricsState.totals.healing),
+    },
+  };
+}
+
 function getPrimaryActiveGmUserId() {
   const users = Array.from(game.users?.contents || game.users || []);
   const activeGms = users
@@ -307,12 +877,19 @@ function collectChatMessagesSince(sinceMessageId) {
 
   const slice = all.slice(startIndex);
   const messages = slice
-    .map((message) => ({
-      id: String(message.id || ''),
-      timestamp: new Date(message.timestamp || Date.now()).toISOString(),
-      speaker: message.speaker?.alias || message.alias || message.user?.name || 'Foundry',
-      raw_text: stripHtml(message.content || ''),
-    }))
+    .map((message) => {
+      const rawText = stripHtml(message.content || '');
+      const actor = resolveMessageActor(message);
+      const item = resolveMessageItem(message, actor);
+      const speaker = getActorSpeakerAlias(actor, message.speaker?.alias || message.alias || message.user?.name || 'Foundry');
+      return {
+        id: String(message.id || ''),
+        timestamp: new Date(message.timestamp || Date.now()).toISOString(),
+        speaker,
+        raw_text: rawText,
+        roll: buildMessageRollSnapshot(message, { actor, item, rawText }),
+      };
+    })
     .filter((message) => message.raw_text);
 
   const lastInBatch = slice.length > 0 ? String(slice[slice.length - 1].id || '') : '';
@@ -345,6 +922,9 @@ function buildSnapshotPayload(connection, { mode = 'manual', reason = 'manual', 
       last_message_id: lastMessageId,
       message_count: messages.length,
       mapping_hint_count: mappingHints.length,
+      rollcodex_mapping_version: ROLLCODEX_MAPPING_VERSION,
+      rollcodex_mapping: buildRollCodexMappingSnapshot(),
+      rollcodex_roster_snapshot: buildRollCodexRosterSnapshot(),
     },
     messages: messages.map(({ id: _id, ...rest }) => rest),
   };
@@ -606,6 +1186,42 @@ function registerAutoSnapshotHooks() {
   });
 
   scheduleIdleSnapshot();
+}
+
+function registerLiveMetricsHooks() {
+  if (liveMetricsState.hookRegistered) return;
+  liveMetricsState.hookRegistered = true;
+
+  Hooks.on('createChatMessage', (message) => {
+    recordLiveMetricsFromMessage(message);
+  });
+}
+
+function canConfigureRollCodexDocument(documentLike) {
+  if (!documentLike) return false;
+  return Boolean(game.user?.isGM || documentLike.isOwner);
+}
+
+function registerMappingSheetButtons() {
+  Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
+    if (!canConfigureRollCodexDocument(app?.object)) return;
+    buttons.unshift({
+      label: 'RollCodex',
+      class: 'rollcodex-configure-actor',
+      icon: 'fas fa-chart-line',
+      onclick: () => new RollCodexMappingApp(app.object, 'actor').render(true),
+    });
+  });
+
+  Hooks.on('getItemSheetHeaderButtons', (app, buttons) => {
+    if (!canConfigureRollCodexDocument(app?.object)) return;
+    buttons.unshift({
+      label: 'RollCodex',
+      class: 'rollcodex-configure-item',
+      icon: 'fas fa-tags',
+      onclick: () => new RollCodexMappingApp(app.object, 'item').render(true),
+    });
+  });
 }
 
 function parseConfirmationPayload(rawValue) {
@@ -1036,6 +1652,138 @@ function registerLiveObservationHooks() {
   });
 }
 
+class RollCodexLiveMetricsApp extends FormApplication {
+  static get defaultOptions() {
+    return foundry.utils.mergeObject(super.defaultOptions, {
+      id: 'rollcodex-live-metrics',
+      title: 'RollCodex - Metriques live',
+      template: `modules/${MODULE_ID}/templates/live-metrics.hbs`,
+      width: 620,
+      closeOnSubmit: false,
+      submitOnChange: false,
+      resizable: true,
+    });
+  }
+
+  getData() {
+    return summarizeLiveMetricsForTemplate();
+  }
+
+  render(force, options) {
+    activeLiveMetricsApps.add(this);
+    return super.render(force, options);
+  }
+
+  activateListeners(html) {
+    super.activateListeners(html);
+    html.find('[name="liveMetricsEnabled"]').on('change', (event) => this.toggleLiveMetrics(event.currentTarget.checked).catch((error) => ui.notifications.error(error.message)));
+    html.find('[data-action="reset-live-metrics"]').on('click', () => this.resetLiveMetrics());
+    html.find('[data-action="configure-actor"]').on('click', (event) => {
+      const actor = getCollectionDocument(game.actors, event.currentTarget.dataset.actorId);
+      if (actor) new RollCodexMappingApp(actor, 'actor').render(true);
+    });
+  }
+
+  async _updateObject() {}
+
+  async toggleLiveMetrics(enabled) {
+    await game.settings.set(MODULE_ID, SETTINGS.liveMetricsEnabled, Boolean(enabled));
+    if (enabled && !liveMetricsState.startedAt) resetLiveMetricsState();
+    ui.notifications.info(enabled ? 'Metriques live RollCodex activees.' : 'Metriques live RollCodex desactivees.');
+    refreshLiveMetricsApps();
+  }
+
+  resetLiveMetrics() {
+    resetLiveMetricsState();
+    ui.notifications.info('Metriques live RollCodex remises a zero.');
+  }
+
+  close(options) {
+    activeLiveMetricsApps.delete(this);
+    return super.close(options);
+  }
+}
+
+class RollCodexMappingApp extends FormApplication {
+  constructor(documentLike, documentType, options = {}) {
+    super(documentLike, options);
+    this.documentType = documentType;
+  }
+
+  static get defaultOptions() {
+    return foundry.utils.mergeObject(super.defaultOptions, {
+      id: 'rollcodex-mapping',
+      title: 'RollCodex',
+      template: `modules/${MODULE_ID}/templates/mapping.hbs`,
+      width: 460,
+      closeOnSubmit: true,
+      submitOnChange: false,
+      resizable: false,
+    });
+  }
+
+  get title() {
+    return this.documentType === 'item'
+      ? `RollCodex - ${getDocumentName(this.object, 'Action')}`
+      : `RollCodex - ${getDocumentName(this.object, 'Acteur')}`;
+  }
+
+  getData() {
+    const documentLike = this.object;
+    const isActor = this.documentType === 'actor';
+    const selectedActorKind = normalizeActorKind(readDocumentFlag(documentLike, FLAGS.actorKind));
+    const selectedActionType = normalizeItemActionType(readDocumentFlag(documentLike, FLAGS.itemActionType));
+    return {
+      isActor,
+      isItem: !isActor,
+      name: getDocumentName(documentLike),
+      actorKind: selectedActorKind,
+      actorKindOptions: ACTOR_KIND_OPTIONS.map((option) => ({ ...option, selected: option.value === selectedActorKind })),
+      speakerAlias: readDocumentFlag(documentLike, FLAGS.actorSpeakerAlias),
+      actorClass: readDocumentFlag(documentLike, FLAGS.actorClass),
+      actorSubclass: readDocumentFlag(documentLike, FLAGS.actorSubclass),
+      actorSpecies: readDocumentFlag(documentLike, FLAGS.actorSpecies),
+      actorLevel: readDocumentFlag(documentLike, FLAGS.actorLevel),
+      actionType: selectedActionType,
+      actionTypeOptions: ITEM_ACTION_TYPE_OPTIONS.map((option) => ({ ...option, selected: option.value === selectedActionType })),
+      actionName: readDocumentFlag(documentLike, FLAGS.itemActionName),
+      actionTags: readDocumentFlag(documentLike, FLAGS.itemTags),
+    };
+  }
+
+  activateListeners(html) {
+    super.activateListeners(html);
+    html.find('[data-action="clear-mapping"]').on('click', () => this.clearMapping().catch((error) => ui.notifications.error(error.message)));
+  }
+
+  async _updateObject(_event, formData) {
+    if (this.documentType === 'actor') {
+      await this.object.setFlag(MODULE_ID, FLAGS.actorKind, normalizeActorKind(formData.actorKind));
+      await this.object.setFlag(MODULE_ID, FLAGS.actorSpeakerAlias, normalizeString(formData.speakerAlias));
+      await this.object.setFlag(MODULE_ID, FLAGS.actorClass, normalizeString(formData.actorClass));
+      await this.object.setFlag(MODULE_ID, FLAGS.actorSubclass, normalizeString(formData.actorSubclass));
+      await this.object.setFlag(MODULE_ID, FLAGS.actorSpecies, normalizeString(formData.actorSpecies));
+      await this.object.setFlag(MODULE_ID, FLAGS.actorLevel, normalizeString(formData.actorLevel));
+    } else {
+      await this.object.setFlag(MODULE_ID, FLAGS.itemActionType, normalizeItemActionType(formData.actionType));
+      await this.object.setFlag(MODULE_ID, FLAGS.itemActionName, normalizeString(formData.actionName));
+      await this.object.setFlag(MODULE_ID, FLAGS.itemTags, normalizeString(formData.actionTags));
+    }
+    ui.notifications.info('Configuration RollCodex enregistree.');
+    refreshLiveMetricsApps();
+  }
+
+  async clearMapping() {
+    const keys = this.documentType === 'actor'
+      ? [FLAGS.actorKind, FLAGS.actorSpeakerAlias, FLAGS.actorClass, FLAGS.actorSubclass, FLAGS.actorSpecies, FLAGS.actorLevel]
+      : [FLAGS.itemActionType, FLAGS.itemActionName, FLAGS.itemTags];
+    await Promise.all(keys.map((key) => this.object.unsetFlag(MODULE_ID, key)));
+    ui.notifications.info('Configuration RollCodex effacee.');
+    refreshLiveMetricsApps();
+    this.render(true);
+  }
+}
+
 class RollCodexConnectionApp extends FormApplication {
   constructor(...args) {
     super(...args);
@@ -1074,6 +1822,7 @@ class RollCodexConnectionApp extends FormApplication {
     const autoSnapshot = getAutoSnapshotSettings();
     const pendingPairing = getPendingPairing();
     const hasPendingPairing = Boolean(pendingPairing.connectionId && pendingPairing.connectionSecret && pendingPairing.state);
+    const liveMetrics = summarizeLiveMetricsForTemplate();
 
     return {
       appUrl,
@@ -1084,6 +1833,8 @@ class RollCodexConnectionApp extends FormApplication {
       autoSnapshotEnabled: autoSnapshot.enabled,
       autoSnapshotLastSentAtLabel: formatDateTime(autoSnapshot.lastSentAt),
       autoSnapshotLastError: autoSnapshot.lastError,
+      liveMetricsEnabled: liveMetrics.enabled,
+      liveMetrics,
       ...connection,
     };
   }
@@ -1101,7 +1852,10 @@ class RollCodexConnectionApp extends FormApplication {
     html.find('[data-action="send-snapshot"]').on('click', () => this.sendSnapshot().catch((error) => ui.notifications.error(error.message)));
     html.find('[data-action="end-session"]').on('click', () => this.sendEndOfSessionSnapshot().catch((error) => ui.notifications.error(error.message)));
     html.find('[data-action="disconnect"]').on('click', () => this.disconnect().catch((error) => ui.notifications.error(error.message)));
+    html.find('[data-action="open-live-metrics"]').on('click', () => new RollCodexLiveMetricsApp().render(true));
+    html.find('[data-action="reset-live-metrics"]').on('click', () => this.resetLiveMetrics());
     html.find('[name="autoSnapshotEnabled"]').on('change', (event) => this.toggleAutoSnapshot(event.currentTarget.checked).catch((error) => ui.notifications.error(error.message)));
+    html.find('[name="liveMetricsEnabled"]').on('change', (event) => this.toggleLiveMetrics(event.currentTarget.checked).catch((error) => ui.notifications.error(error.message)));
 
     const pendingPairing = getPendingPairing();
     if (pendingPairing.connectionId && pendingPairing.connectionSecret && pendingPairing.state) {
@@ -1126,6 +1880,20 @@ class RollCodexConnectionApp extends FormApplication {
     } else {
       ui.notifications.info('Capture automatique de fin de session desactivee.');
     }
+    this.render(true);
+  }
+
+  async toggleLiveMetrics(enabled) {
+    await game.settings.set(MODULE_ID, SETTINGS.liveMetricsEnabled, Boolean(enabled));
+    if (enabled && !liveMetricsState.startedAt) resetLiveMetricsState();
+    ui.notifications.info(enabled ? 'Metriques live RollCodex activees.' : 'Metriques live RollCodex desactivees.');
+    refreshLiveMetricsApps();
+    this.render(true);
+  }
+
+  resetLiveMetrics() {
+    resetLiveMetricsState();
+    ui.notifications.info('Metriques live RollCodex remises a zero.');
     this.render(true);
   }
 
@@ -1621,12 +2389,22 @@ Hooks.once('init', () => {
     hint: 'Si aucun message n est envoye pendant cette duree, RollCodex declenche une capture de la session courante. Mettez 0 pour desactiver.',
   });
 
+  registerSetting(SETTINGS.liveMetricsEnabled, {
+    scope: 'client',
+    config: true,
+    type: Boolean,
+    default: true,
+    name: 'Metriques live RollCodex',
+    hint: 'Affiche un kikimeter local dans Foundry. Ces metriques ne sont pas envoyees a RollCodex.',
+  });
+
   Object.values(SETTINGS)
     .filter((key) => ![
       SETTINGS.appUrl,
       SETTINGS.autoSnapshotEnabled,
       SETTINGS.autoSnapshotMinIntervalMs,
       SETTINGS.autoSnapshotIdleMinutes,
+      SETTINGS.liveMetricsEnabled,
     ].includes(key))
     .forEach((key) => registerSetting(key, {
       config: false,
@@ -1650,9 +2428,25 @@ Hooks.once('init', () => {
     type: RollCodexLivePanel,
     restricted: true,
   });
+
+  game.settings.registerMenu(MODULE_ID, 'liveMetricsMenu', {
+    name: 'Metriques live RollCodex',
+    label: 'Ouvrir le kikimeter',
+    hint: 'Afficher les metriques locales calculees depuis les messages Foundry de cette session.',
+    icon: 'fas fa-chart-bar',
+    type: RollCodexLiveMetricsApp,
+    restricted: false,
+  });
+
+  registerMappingSheetButtons();
 });
 
 Hooks.once('ready', async () => {
+  registerLiveMetricsHooks();
+  if (game.settings.get(MODULE_ID, SETTINGS.liveMetricsEnabled) && !liveMetricsState.startedAt) {
+    resetLiveMetricsState();
+  }
+
   if (!game.user?.isGM) return;
   try {
     await migrateLegacyConnectionSecret();
