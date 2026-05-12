@@ -1,7 +1,7 @@
 /* global Dialog, FormApplication, Hooks, foundry, game, ui */
 
 const MODULE_ID = 'rollcodex';
-const MODULE_VERSION = '0.1.12';
+const MODULE_VERSION = '0.1.13';
 const DEFAULT_ROLLCODEX_APP_URL = 'http://localhost:5173';
 const MESSAGE_HANDSHAKE_TYPE = 'rollcodex:vtt-pairing-handshake';
 const MESSAGE_HANDSHAKE_RESPONSE_TYPE = 'rollcodex:vtt-pairing-handshake-response';
@@ -11,6 +11,9 @@ const AUTO_RECOVERY_DURATION_MS = 10 * 60 * 1000;
 const AUTO_RECOVERY_INTERVAL_MS = 2000;
 const AUTO_SESSION_CAPTURE_MIN_INTERVAL_MS = 120000;
 const DEFAULT_IDLE_MINUTES = 45;
+const MAPPING_PROFILE_TTL_MS = 30 * 60 * 1000;
+const LIVE_MAX_HINTS = 512;
+const LIVE_MAX_SOURCES = 256;
 
 const SETTINGS = {
   appUrl: 'appUrl',
@@ -18,6 +21,7 @@ const SETTINGS = {
   connectionSecret: 'connectionSecret',
   localConnectionSecret: 'localConnectionSecret',
   endpoint: 'endpoint',
+  mappingProfileEndpoint: 'mappingProfileEndpoint',
   workspaceLabel: 'workspaceLabel',
   systemId: 'systemId',
   systemLabel: 'systemLabel',
@@ -33,6 +37,8 @@ const SETTINGS = {
   autoSnapshotLastSentAt: 'autoSnapshotLastSentAt',
   autoSnapshotLastMessageId: 'autoSnapshotLastMessageId',
   autoSnapshotLastError: 'autoSnapshotLastError',
+  mappingProfileCache: 'mappingProfileCache',
+  mappingProfileFetchedAt: 'mappingProfileFetchedAt',
 };
 
 const CLIENT_SCOPED_SETTINGS = new Set([
@@ -45,12 +51,31 @@ const CLIENT_SCOPED_SETTINGS = new Set([
 ]);
 
 const activeConnectionApps = new Set();
+const activeLivePanels = new Set();
 
 const autoSnapshotState = {
   hookRegistered: false,
   lastErrorMessage: '',
   idleTimer: null,
   inMemoryLastMessageId: '',
+};
+
+const liveSessionState = {
+  hookRegistered: false,
+  startedAt: '',
+  sources: new Map(),
+  observedMessageIds: new Set(),
+  totals: { actions: 0, rolls: 0, nat20: 0, damageTotal: 0, healTotal: 0 },
+  resolvedCount: 0,
+  unresolvedCount: 0,
+};
+
+const mappingProfileState = {
+  profile: null,
+  generatedAt: 0,
+  index: null,
+  lastFetchError: '',
+  inFlight: null,
 };
 
 function registerSetting(key, options) {
@@ -204,6 +229,7 @@ async function fetchConnectionConfig(appUrl) {
   return {
     pairingStatusEndpoint,
     snapshotEndpoint: String(payload?.foundry?.snapshotEndpoint || '').trim(),
+    mappingProfileEndpoint: String(payload?.foundry?.mappingProfileEndpoint || '').trim(),
   };
 }
 
@@ -212,6 +238,7 @@ function getStoredConnection() {
     connectionId: game.settings.get(MODULE_ID, SETTINGS.connectionId),
     connectionSecret: game.settings.get(MODULE_ID, SETTINGS.localConnectionSecret),
     endpoint: game.settings.get(MODULE_ID, SETTINGS.endpoint),
+    mappingProfileEndpoint: game.settings.get(MODULE_ID, SETTINGS.mappingProfileEndpoint),
     workspaceLabel: game.settings.get(MODULE_ID, SETTINGS.workspaceLabel),
     systemId: game.settings.get(MODULE_ID, SETTINGS.systemId),
     systemLabel: game.settings.get(MODULE_ID, SETTINGS.systemLabel),
@@ -301,6 +328,7 @@ function buildSnapshotPayload(connection, { mode = 'manual', reason = 'manual', 
     ? `${connection.connectionId}:auto:${idempotencyToken}`
     : `${connection.connectionId}:${mode}:${idempotencyToken}:${generateState()}`;
 
+  const mappingHints = getCurrentMappingHints();
   const payload = {
     provider: 'foundry',
     connection_id: connection.connectionId,
@@ -316,11 +344,16 @@ function buildSnapshotPayload(connection, { mode = 'manual', reason = 'manual', 
       since_message_id: sinceMessageId || '',
       last_message_id: lastMessageId,
       message_count: messages.length,
+      mapping_hint_count: mappingHints.length,
     },
     messages: messages.map(({ id: _id, ...rest }) => rest),
   };
 
-  return { payload, lastMessageId, messageCount: messages.length };
+  if (mappingHints.length > 0) {
+    payload.mapping_hints = mappingHints;
+  }
+
+  return { payload, lastMessageId, messageCount: messages.length, mappingHintCount: mappingHints.length };
 }
 
 function describeSnapshotError(payload, fallbackMessage) {
@@ -591,6 +624,7 @@ async function saveConnectionFromMessage(data, connectionSecret) {
   await game.settings.set(MODULE_ID, SETTINGS.localConnectionSecret, connectionSecret || '');
   await game.settings.set(MODULE_ID, SETTINGS.connectionSecret, '');
   await game.settings.set(MODULE_ID, SETTINGS.endpoint, data.endpoint || '');
+  await game.settings.set(MODULE_ID, SETTINGS.mappingProfileEndpoint, data.mappingProfileEndpoint || '');
   await game.settings.set(MODULE_ID, SETTINGS.workspaceLabel, data.workspaceLabel || '');
   await game.settings.set(MODULE_ID, SETTINGS.systemId, data.systemId || '');
   await game.settings.set(MODULE_ID, SETTINGS.systemLabel, data.systemLabel || '');
@@ -634,6 +668,372 @@ async function clearPendingPairing() {
   await game.settings.set(MODULE_ID, SETTINGS.pendingState, '');
   await game.settings.set(MODULE_ID, SETTINGS.pendingPairingStatusEndpoint, '');
   await game.settings.set(MODULE_ID, SETTINGS.pendingPairingCode, '');
+}
+
+function refreshLivePanels() {
+  activeLivePanels.forEach((app) => app.render(false));
+}
+
+function getCachedMappingProfile() {
+  if (mappingProfileState.profile && mappingProfileState.index) {
+    return mappingProfileState.profile;
+  }
+
+  const cached = game.settings.get(MODULE_ID, SETTINGS.mappingProfileCache);
+  if (!cached || typeof cached !== 'string') return null;
+
+  try {
+    const parsed = JSON.parse(cached);
+    if (!parsed || typeof parsed !== 'object') return null;
+    mappingProfileState.profile = parsed;
+    mappingProfileState.generatedAt = Date.parse(String(parsed.generated_at || '')) || 0;
+    mappingProfileState.index = buildMappingProfileIndex(parsed);
+    return parsed;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function buildMappingProfileIndex(profile) {
+  const index = new Map();
+  const scopeKeys = Array.isArray(profile?.scope_keys) ? profile.scope_keys : ['workspace'];
+  const scopeRank = new Map(scopeKeys.map((key, position) => [String(key), position]));
+
+  const pushMapping = (sourceKind, sourceKey, mapping) => {
+    if (!sourceKind || !sourceKey) return;
+    const indexKey = `${sourceKind} ${String(sourceKey).toLowerCase()}`;
+    const existing = index.get(indexKey);
+    if (!existing) {
+      index.set(indexKey, mapping);
+      return;
+    }
+
+    const existingRank = scopeRank.get(String(existing.scope_key || '')) ?? 999;
+    const candidateRank = scopeRank.get(String(mapping.scope_key || '')) ?? 999;
+    if (candidateRank < existingRank) {
+      index.set(indexKey, mapping);
+      return;
+    }
+    if (candidateRank === existingRank) {
+      const existingConfidence = Number(existing.confidence || 0);
+      const candidateConfidence = Number(mapping.confidence || 0);
+      if (candidateConfidence > existingConfidence) {
+        index.set(indexKey, mapping);
+      }
+    }
+  };
+
+  const mappings = Array.isArray(profile?.mappings) ? profile.mappings : [];
+  mappings.forEach((mapping) => {
+    if (!mapping || typeof mapping !== 'object') return;
+    pushMapping(mapping.source_kind, mapping.source_key, mapping);
+  });
+
+  return index;
+}
+
+function resolveMappingFromProfile(sourceKind, sourceKey) {
+  const profile = getCachedMappingProfile();
+  if (!profile || !mappingProfileState.index) return null;
+  if (!sourceKind || !sourceKey) return null;
+
+  const indexKey = `${sourceKind} ${String(sourceKey).toLowerCase()}`;
+  return mappingProfileState.index.get(indexKey) || null;
+}
+
+async function fetchMappingProfile({ force = false } = {}) {
+  if (!canCurrentUserSendSnapshots()) return null;
+  const connection = getStoredConnection();
+  if (!hasStoredConnection(connection) || !connection.mappingProfileEndpoint) return null;
+
+  if (!force && mappingProfileState.profile
+    && Date.now() - mappingProfileState.generatedAt < MAPPING_PROFILE_TTL_MS) {
+    return mappingProfileState.profile;
+  }
+
+  if (mappingProfileState.inFlight) return mappingProfileState.inFlight;
+
+  mappingProfileState.inFlight = (async () => {
+    try {
+      const response = await fetch(connection.mappingProfileEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        body: JSON.stringify({
+          provider: 'foundry',
+          connection_id: connection.connectionId,
+          connection_secret: connection.connectionSecret,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const code = payload?.code || payload?.error || '';
+        const message = payload?.message || payload?.error || 'Profil de mapping indisponible.';
+        mappingProfileState.lastFetchError = String(message);
+        if (code === 'INVALID_CONNECTION_SECRET' || code === 'CONNECTION_REVOKED') {
+          console.warn('[RollCodex] Mapping profile auth failed', { code });
+        }
+        refreshLivePanels();
+        return null;
+      }
+
+      const profile = payload?.profile && typeof payload.profile === 'object' ? payload.profile : null;
+      if (!profile) {
+        mappingProfileState.lastFetchError = 'Reponse de profil RollCodex inattendue.';
+        refreshLivePanels();
+        return null;
+      }
+
+      mappingProfileState.profile = profile;
+      mappingProfileState.generatedAt = Date.parse(String(profile.generated_at || '')) || Date.now();
+      mappingProfileState.index = buildMappingProfileIndex(profile);
+      mappingProfileState.lastFetchError = '';
+
+      try {
+        await game.settings.set(MODULE_ID, SETTINGS.mappingProfileCache, JSON.stringify(profile));
+        await game.settings.set(
+          MODULE_ID,
+          SETTINGS.mappingProfileFetchedAt,
+          new Date(mappingProfileState.generatedAt).toISOString(),
+        );
+      } catch (storageError) {
+        console.warn('[RollCodex] Mapping profile cache persistence failed', storageError);
+      }
+
+      refreshLivePanels();
+      return profile;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Profil de mapping indisponible.';
+      mappingProfileState.lastFetchError = message;
+      console.warn('[RollCodex] Mapping profile fetch failed', error);
+      refreshLivePanels();
+      return null;
+    } finally {
+      mappingProfileState.inFlight = null;
+    }
+  })();
+
+  return mappingProfileState.inFlight;
+}
+
+function getMessageActor(message) {
+  if (!message || !message.speaker) return null;
+  const actorId = message.speaker.actor;
+  if (!actorId) return null;
+  try {
+    return game.actors?.get?.(actorId) || null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function getMessageToken(message) {
+  if (!message || !message.speaker) return null;
+  const tokenName = message.speaker.token ? message.speaker.alias : '';
+  return tokenName || message.speaker.alias || '';
+}
+
+function getMessageUser(message) {
+  if (!message) return null;
+  const userId = message.user?.id || message.user;
+  if (!userId) return null;
+  try {
+    return game.users?.get?.(userId) || null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function extractRollFigures(message) {
+  const rolls = Array.isArray(message?.rolls) ? message.rolls : [];
+  let total = 0;
+  let count = 0;
+  let nat20 = 0;
+  let damageHint = 0;
+
+  rolls.forEach((roll) => {
+    if (!roll) return;
+    const rollTotal = Number(roll?.total ?? roll?._total ?? 0);
+    if (Number.isFinite(rollTotal)) {
+      total += rollTotal;
+      count += 1;
+      if (rollTotal >= 18) damageHint += rollTotal;
+    }
+    const terms = Array.isArray(roll?.terms) ? roll.terms : [];
+    terms.forEach((term) => {
+      const faces = Number(term?.faces);
+      if (faces !== 20) return;
+      const results = Array.isArray(term?.results) ? term.results : [];
+      results.forEach((result) => {
+        if (Number(result?.result) === 20) nat20 += 1;
+      });
+    });
+  });
+
+  return { total, count, nat20, damageHint };
+}
+
+function extractMessageObservations(message) {
+  const observations = [];
+  if (!message) return observations;
+
+  const actor = getMessageActor(message);
+  if (actor) {
+    const sourceKey = actor.uuid || `Actor.${actor.id}`;
+    observations.push({
+      source_kind: 'actor',
+      source_key: String(sourceKey),
+      source_label: actor.name || actor.token?.name || 'Acteur Foundry',
+      target_kind: 'character',
+    });
+  }
+
+  if (message.speaker?.alias && !actor) {
+    observations.push({
+      source_kind: 'speaker',
+      source_key: String(message.speaker.alias),
+      source_label: String(message.speaker.alias),
+      target_kind: 'character',
+    });
+  }
+
+  const tokenAlias = getMessageToken(message);
+  if (tokenAlias && (!actor || tokenAlias !== actor.name)) {
+    observations.push({
+      source_kind: 'token',
+      source_key: `token:${tokenAlias}`,
+      source_label: String(tokenAlias),
+      target_kind: 'character',
+    });
+  }
+
+  const user = getMessageUser(message);
+  if (user) {
+    observations.push({
+      source_kind: 'user',
+      source_key: `User.${user.id}`,
+      source_label: user.name || 'Foundry User',
+      target_kind: 'player',
+    });
+  }
+
+  const itemUuid = message?.flags?.dnd5e?.itemUuid
+    || message?.flags?.pf2e?.itemUuid
+    || message?.flags?.[message?.flags?.systemId]?.itemUuid
+    || null;
+  if (itemUuid) {
+    observations.push({
+      source_kind: 'item',
+      source_key: String(itemUuid),
+      source_label: message?.flavor || 'Item Foundry',
+      target_kind: null,
+    });
+  }
+
+  return observations;
+}
+
+function recordLiveObservation(message) {
+  if (!message) return;
+  const messageId = String(message.id || '');
+  if (messageId && liveSessionState.observedMessageIds.has(messageId)) return;
+  if (messageId) liveSessionState.observedMessageIds.add(messageId);
+
+  const observations = extractMessageObservations(message);
+  if (observations.length === 0) return;
+
+  if (!liveSessionState.startedAt) {
+    liveSessionState.startedAt = new Date().toISOString();
+  }
+
+  const rollFigures = extractRollFigures(message);
+  liveSessionState.totals.actions += 1;
+  liveSessionState.totals.rolls += rollFigures.count;
+  liveSessionState.totals.nat20 += rollFigures.nat20;
+  if (rollFigures.damageHint) {
+    liveSessionState.totals.damageTotal += rollFigures.damageHint;
+  }
+
+  observations.forEach((observation) => {
+    const sourceMapKey = `${observation.source_kind} ${observation.source_key}`;
+    let entry = liveSessionState.sources.get(sourceMapKey);
+    if (!entry) {
+      if (liveSessionState.sources.size >= LIVE_MAX_SOURCES) return;
+      const resolved = resolveMappingFromProfile(observation.source_kind, observation.source_key);
+      entry = {
+        source_kind: observation.source_kind,
+        source_key: observation.source_key,
+        source_label: observation.source_label,
+        target_kind: resolved?.target_kind || observation.target_kind || null,
+        target_id: resolved?.target_id || null,
+        target_label: resolved?.target_label || null,
+        confidence: Number(resolved?.confidence || 0),
+        resolved: Boolean(resolved?.target_id),
+        observation_count: 0,
+        rolls: 0,
+        nat20: 0,
+        damage_total: 0,
+      };
+      liveSessionState.sources.set(sourceMapKey, entry);
+      if (entry.resolved) {
+        liveSessionState.resolvedCount += 1;
+      } else {
+        liveSessionState.unresolvedCount += 1;
+      }
+    }
+
+    entry.observation_count += 1;
+    entry.rolls += rollFigures.count;
+    entry.nat20 += rollFigures.nat20;
+    entry.damage_total += rollFigures.damageHint;
+  });
+
+  refreshLivePanels();
+}
+
+function resetLiveSessionState() {
+  liveSessionState.startedAt = '';
+  liveSessionState.sources.clear();
+  liveSessionState.observedMessageIds.clear();
+  liveSessionState.totals.actions = 0;
+  liveSessionState.totals.rolls = 0;
+  liveSessionState.totals.nat20 = 0;
+  liveSessionState.totals.damageTotal = 0;
+  liveSessionState.totals.healTotal = 0;
+  liveSessionState.resolvedCount = 0;
+  liveSessionState.unresolvedCount = 0;
+}
+
+function getCurrentMappingHints() {
+  const hints = [];
+  let processed = 0;
+  for (const entry of liveSessionState.sources.values()) {
+    if (processed >= LIVE_MAX_HINTS) break;
+    processed += 1;
+    const confidence = Number.isFinite(entry.confidence) ? Math.max(0, Math.min(1, entry.confidence)) : 0;
+    hints.push({
+      provider: 'foundry',
+      source_kind: entry.source_kind,
+      source_key: entry.source_key,
+      source_label: entry.source_label || null,
+      target_kind: entry.target_kind || null,
+      target_id: entry.target_id || null,
+      target_label: entry.target_label || null,
+      confidence,
+    });
+  }
+  return hints;
+}
+
+function registerLiveObservationHooks() {
+  if (liveSessionState.hookRegistered) return;
+  liveSessionState.hookRegistered = true;
+  Hooks.on('createChatMessage', (message) => {
+    try {
+      recordLiveObservation(message);
+    } catch (error) {
+      console.warn('[RollCodex] Live observation failed', error);
+    }
+  });
 }
 
 class RollCodexConnectionApp extends FormApplication {
@@ -1031,6 +1431,9 @@ class RollCodexConnectionApp extends FormApplication {
       game.settings.set(MODULE_ID, SETTINGS.connectionSecret, ''),
       game.settings.set(MODULE_ID, SETTINGS.localConnectionSecret, ''),
       game.settings.set(MODULE_ID, SETTINGS.endpoint, ''),
+      game.settings.set(MODULE_ID, SETTINGS.mappingProfileEndpoint, ''),
+      game.settings.set(MODULE_ID, SETTINGS.mappingProfileCache, ''),
+      game.settings.set(MODULE_ID, SETTINGS.mappingProfileFetchedAt, ''),
       game.settings.set(MODULE_ID, SETTINGS.workspaceLabel, ''),
       game.settings.set(MODULE_ID, SETTINGS.systemId, ''),
       game.settings.set(MODULE_ID, SETTINGS.systemLabel, ''),
@@ -1042,6 +1445,12 @@ class RollCodexConnectionApp extends FormApplication {
     ]);
 
     autoSnapshotState.inMemoryLastMessageId = '';
+    mappingProfileState.profile = null;
+    mappingProfileState.index = null;
+    mappingProfileState.generatedAt = 0;
+    mappingProfileState.lastFetchError = '';
+    resetLiveSessionState();
+    refreshLivePanels();
     clearIdleTimer();
     this.stopAutoRecovery();
     ui.notifications.info('Connexion RollCodex retiree de ce monde.');
@@ -1055,6 +1464,125 @@ class RollCodexConnectionApp extends FormApplication {
       this.currentMessageHandler = null;
     }
     this.stopAutoRecovery();
+    return super.close(options);
+  }
+}
+
+class RollCodexLivePanel extends FormApplication {
+  static get defaultOptions() {
+    return foundry.utils.mergeObject(super.defaultOptions, {
+      id: 'rollcodex-live-panel',
+      title: 'RollCodex Live (kikimeter)',
+      template: `modules/${MODULE_ID}/templates/live-panel.hbs`,
+      width: 520,
+      height: 'auto',
+      closeOnSubmit: false,
+      submitOnChange: false,
+      resizable: true,
+    });
+  }
+
+  getData() {
+    const connection = getStoredConnection();
+    const connected = hasStoredConnection(connection);
+    const profile = getCachedMappingProfile();
+    const profileFetchedAtRaw = game.settings.get(MODULE_ID, SETTINGS.mappingProfileFetchedAt);
+    const profileFetchedAtLabel = formatDateTime(profileFetchedAtRaw);
+    const profileCount = Array.isArray(profile?.mappings) ? profile.mappings.length : 0;
+    const isGmPrimary = canCurrentUserSendSnapshots();
+
+    const sources = Array.from(liveSessionState.sources.values()).map((entry) => ({
+      ...entry,
+      confidenceLabel: entry.resolved ? `${Math.round(entry.confidence * 100)}%` : 'non resolu',
+      damageLabel: entry.damage_total > 0 ? String(entry.damage_total) : '-',
+    }));
+
+    sources.sort((a, b) => {
+      if (a.resolved !== b.resolved) return a.resolved ? -1 : 1;
+      return b.observation_count - a.observation_count;
+    });
+
+    return {
+      connected,
+      isGmPrimary,
+      workspaceLabel: connection.workspaceLabel || '',
+      systemLabel: connection.systemLabel || '',
+      mappingProfileEndpoint: connection.mappingProfileEndpoint || '',
+      profileAvailable: Boolean(profile),
+      profileFetchedAtLabel,
+      profileMappingCount: profileCount,
+      profileFetchError: mappingProfileState.lastFetchError || '',
+      sessionStartedAtLabel: liveSessionState.startedAt ? formatDateTime(liveSessionState.startedAt) : '',
+      actions: liveSessionState.totals.actions,
+      rolls: liveSessionState.totals.rolls,
+      nat20: liveSessionState.totals.nat20,
+      damageTotal: liveSessionState.totals.damageTotal,
+      resolvedCount: liveSessionState.resolvedCount,
+      unresolvedCount: liveSessionState.unresolvedCount,
+      sources,
+      hasSources: sources.length > 0,
+    };
+  }
+
+  render(force, options) {
+    activeLivePanels.add(this);
+    return super.render(force, options);
+  }
+
+  activateListeners(html) {
+    super.activateListeners(html);
+    html.find('[data-action="reload-profile"]').on('click', () =>
+      this.reloadProfile().catch((error) => ui.notifications.error(error.message)));
+    html.find('[data-action="send-snapshot"]').on('click', () =>
+      this.sendSnapshotNow().catch((error) => ui.notifications.error(error.message)));
+    html.find('[data-action="reset-session"]').on('click', () =>
+      this.resetSession().catch((error) => ui.notifications.error(error.message)));
+  }
+
+  async _updateObject() {}
+
+  async reloadProfile() {
+    if (!canCurrentUserSendSnapshots()) {
+      ui.notifications.warn('Seul le MJ primaire peut recharger le profil RollCodex.');
+      return;
+    }
+    const profile = await fetchMappingProfile({ force: true });
+    if (profile) {
+      ui.notifications.info('Profil de mapping RollCodex rafraichi.');
+    } else if (mappingProfileState.lastFetchError) {
+      ui.notifications.warn(mappingProfileState.lastFetchError);
+    } else {
+      ui.notifications.info('Aucun profil retourne par RollCodex (memoire vide).');
+    }
+    this.render(true);
+  }
+
+  async sendSnapshotNow() {
+    if (!canCurrentUserSendSnapshots()) {
+      ui.notifications.warn('Seul le MJ primaire peut envoyer un snapshot RollCodex.');
+      return;
+    }
+    const result = await sendSnapshotPayload({ mode: 'manual', reason: 'live_panel_button' });
+    if (result.blockedResponse) {
+      ui.notifications.warn('Capture transmise. Le navigateur a bloque le retour, verifiez l import dans RollCodex.');
+      return;
+    }
+    const hintsCount = result.mappingHintCount ?? 0;
+    ui.notifications.info(`Capture envoyee (${result.messageCount} messages, ${hintsCount} hints).`);
+  }
+
+  async resetSession() {
+    const confirmed = await Dialog.confirm({
+      title: 'Reinitialiser la session live',
+      content: '<p>Les compteurs de session courante seront remis a zero. Le profil et les captures envoyees ne sont pas affectes.</p>',
+    });
+    if (!confirmed) return;
+    resetLiveSessionState();
+    this.render(true);
+  }
+
+  close(options) {
+    activeLivePanels.delete(this);
     return super.close(options);
   }
 }
@@ -1113,6 +1641,15 @@ Hooks.once('init', () => {
     type: RollCodexConnectionApp,
     restricted: true,
   });
+
+  game.settings.registerMenu(MODULE_ID, 'livePanelMenu', {
+    name: 'RollCodex Live (kikimeter)',
+    label: 'Ouvrir le panneau live',
+    hint: 'Compteurs de session pre-validation, profil de mapping et envoi de capture avec hints.',
+    icon: 'fas fa-gauge-high',
+    type: RollCodexLivePanel,
+    restricted: true,
+  });
 });
 
 Hooks.once('ready', async () => {
@@ -1126,8 +1663,16 @@ Hooks.once('ready', async () => {
     game.settings.get(MODULE_ID, SETTINGS.autoSnapshotLastMessageId) || '',
   );
   registerAutoSnapshotHooks();
+  registerLiveObservationHooks();
+  getCachedMappingProfile();
   const connection = getStoredConnection();
   if (!connection.connectionId) {
     ui.notifications.info('RollCodex est pret. Configurez la connexion dans les parametres du module.');
+    return;
+  }
+  if (canCurrentUserSendSnapshots() && connection.mappingProfileEndpoint) {
+    fetchMappingProfile({ force: false }).catch((error) => {
+      console.warn('[RollCodex] Initial mapping profile fetch failed', error);
+    });
   }
 });

@@ -1,0 +1,106 @@
+<form class="rollcodex-live-panel" autocomplete="off">
+  <header class="rollcodex-live-panel__header">
+    <div>
+      <p class="rollcodex-live-panel__eyebrow">RollCodex Live</p>
+      <h2>Kikimeter de session</h2>
+    </div>
+    <span class="rollcodex-live-panel__status {{#if profileAvailable}}is-ready{{else}}is-idle{{/if}}">
+      {{#if profileAvailable}}Profil pret{{else}}Profil indisponible{{/if}}
+    </span>
+  </header>
+
+  {{#unless connected}}
+    <section class="rollcodex-live-panel__notice">
+      <p>Connectez d'abord ce monde a RollCodex pour activer le panneau live.</p>
+    </section>
+  {{/unless}}
+
+  {{#if connected}}
+    {{#unless isGmPrimary}}
+      <section class="rollcodex-live-panel__notice">
+        <p>Seul le MJ primaire actif peut envoyer des snapshots et recharger le profil. Vous voyez les compteurs en lecture seule.</p>
+      </section>
+    {{/unless}}
+
+    <section class="rollcodex-live-panel__section">
+      <div class="rollcodex-live-panel__profile">
+        <dl>
+          <div>
+            <dt>Registre</dt>
+            <dd>{{workspaceLabel}}</dd>
+          </div>
+          <div>
+            <dt>Systeme</dt>
+            <dd>{{systemLabel}}</dd>
+          </div>
+          <div>
+            <dt>Profil rafraichi</dt>
+            <dd>{{#if profileFetchedAtLabel}}{{profileFetchedAtLabel}}{{else}}jamais{{/if}}</dd>
+          </div>
+          <div>
+            <dt>Regles dans le profil</dt>
+            <dd>{{profileMappingCount}}</dd>
+          </div>
+        </dl>
+        {{#if profileFetchError}}
+          <p class="rollcodex-live-panel__error">{{profileFetchError}}</p>
+        {{/if}}
+      </div>
+    </section>
+
+    <section class="rollcodex-live-panel__section rollcodex-live-panel__totals">
+      <h3>Session courante (pre-validation)</h3>
+      {{#if sessionStartedAtLabel}}
+        <p class="rollcodex-live-panel__meta">Demarree {{sessionStartedAtLabel}}</p>
+      {{/if}}
+      <ul class="rollcodex-live-panel__metrics">
+        <li><strong>{{actions}}</strong><span>actions</span></li>
+        <li><strong>{{rolls}}</strong><span>jets</span></li>
+        <li><strong>{{nat20}}</strong><span>nat20</span></li>
+        <li><strong>{{damageTotal}}</strong><span>cumul degats observes</span></li>
+        <li><strong>{{resolvedCount}}</strong><span>sources resolues</span></li>
+        <li><strong>{{unresolvedCount}}</strong><span>sources non resolues</span></li>
+      </ul>
+    </section>
+
+    <section class="rollcodex-live-panel__section">
+      <h3>Sources observees</h3>
+      {{#if hasSources}}
+        <ul class="rollcodex-live-panel__sources">
+          {{#each sources}}
+            <li class="rollcodex-live-panel__source {{#if resolved}}is-resolved{{else}}is-unresolved{{/if}}">
+              <div class="rollcodex-live-panel__source-head">
+                <span class="rollcodex-live-panel__source-kind">{{source_kind}}</span>
+                <strong>{{source_label}}</strong>
+                <span class="rollcodex-live-panel__source-confidence">{{confidenceLabel}}</span>
+              </div>
+              <div class="rollcodex-live-panel__source-body">
+                <span>{{observation_count}} obs.</span>
+                <span>{{rolls}} jets</span>
+                <span>{{nat20}} nat20</span>
+                <span>deg. ~{{damageLabel}}</span>
+                {{#if target_label}}
+                  <span class="rollcodex-live-panel__source-target">{{target_kind}} : {{target_label}}</span>
+                {{/if}}
+              </div>
+            </li>
+          {{/each}}
+        </ul>
+      {{else}}
+        <p class="rollcodex-live-panel__meta">Aucun message observe pour le moment.</p>
+      {{/if}}
+    </section>
+
+    <footer class="rollcodex-live-panel__actions">
+      <button type="button" class="rollcodex-button" data-action="reload-profile" {{#unless isGmPrimary}}disabled{{/unless}}>
+        Recharger le profil
+      </button>
+      <button type="button" class="rollcodex-button rollcodex-button--primary" data-action="send-snapshot" {{#unless isGmPrimary}}disabled{{/unless}}>
+        Envoyer snapshot maintenant
+      </button>
+      <button type="button" class="rollcodex-button rollcodex-button--ghost" data-action="reset-session">
+        Reinitialiser la session
+      </button>
+    </footer>
+  {{/if}}
+</form>
