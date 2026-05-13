@@ -48,20 +48,63 @@
       </div>
     </section>
 
-    <section class="rollcodex-live-panel__section rollcodex-live-panel__totals">
-      <h3>Session courante (pre-validation)</h3>
-      {{#if sessionStartedAtLabel}}
-        <p class="rollcodex-live-panel__meta">Demarree {{sessionStartedAtLabel}}</p>
-      {{/if}}
-      <ul class="rollcodex-live-panel__metrics">
-        <li><strong>{{actions}}</strong><span>actions</span></li>
-        <li><strong>{{rolls}}</strong><span>jets</span></li>
-        <li><strong>{{nat20}}</strong><span>nat20</span></li>
-        <li><strong>{{damageTotal}}</strong><span>cumul degats observes</span></li>
-        <li><strong>{{resolvedCount}}</strong><span>sources resolues</span></li>
-        <li><strong>{{unresolvedCount}}</strong><span>sources non resolues</span></li>
-      </ul>
-    </section>
+    {{#if hasMeasures}}
+      <section class="rollcodex-live-panel__section">
+        <label for="measure-selector">Affichage</label>
+        <select id="measure-selector" class="rollcodex-select" data-action="select-measure">
+          <option value="">Compteurs globaux</option>
+          {{#each availableMeasures}}
+            <option value="{{id}}" {{#if selected}}selected{{/if}}>{{icon}} {{name}}</option>
+          {{/each}}
+        </select>
+      </section>
+    {{/if}}
+
+    {{#if showLegacyTotals}}
+      <section class="rollcodex-live-panel__section rollcodex-live-panel__totals">
+        <h3>Session courante (pre-validation)</h3>
+        {{#if sessionStartedAtLabel}}
+          <p class="rollcodex-live-panel__meta">Demarree {{sessionStartedAtLabel}}</p>
+        {{/if}}
+        <ul class="rollcodex-live-panel__metrics">
+          <li><strong>{{actions}}</strong><span>actions</span></li>
+          <li><strong>{{rolls}}</strong><span>jets</span></li>
+          <li><strong>{{nat20}}</strong><span>nat20</span></li>
+          <li><strong>{{damageTotal}}</strong><span>cumul degats observes</span></li>
+          <li><strong>{{resolvedCount}}</strong><span>sources resolues</span></li>
+          <li><strong>{{unresolvedCount}}</strong><span>sources non resolues</span></li>
+        </ul>
+      </section>
+    {{/if}}
+
+    {{#if showMeasureRanking}}
+      <section class="rollcodex-live-panel__section rollcodex-live-panel__measure-ranking">
+        <h3>
+          <span style="color: {{selectedMeasure.color}}">{{selectedMeasure.icon}} {{selectedMeasure.name}}</span>
+        </h3>
+        {{#if sessionStartedAtLabel}}
+          <p class="rollcodex-live-panel__meta">Demarree {{sessionStartedAtLabel}}</p>
+        {{/if}}
+        {{#if hasRanking}}
+          <ol class="rollcodex-live-panel__ranking">
+            {{#each ranking}}
+              <li class="{{#unless resolved}}is-unresolved{{/unless}}">
+                <span class="rollcodex-live-panel__rank">{{rank}}.</span>
+                <strong>{{participant_label}}</strong>
+                {{#unless resolved}}<span class="rollcodex-live-panel__badge">non resolu</span>{{/unless}}
+                <span class="rollcodex-live-panel__measure-value">{{valueLabel}}</span>
+              </li>
+            {{/each}}
+          </ol>
+          <p class="rollcodex-live-panel__meta">
+            {{#if unresolvedRankingCount}}<em>{{unresolvedRankingCount}} non resolus</em> &mdash; {{/if}}
+            Total observe : {{totalRankingCount}}
+          </p>
+        {{else}}
+          <p class="rollcodex-live-panel__meta">Aucun jet pour cette mesure cette session.</p>
+        {{/if}}
+      </section>
+    {{/if}}
 
     <section class="rollcodex-live-panel__section">
       <h3>Sources observees</h3>

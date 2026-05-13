@@ -17,7 +17,6 @@ const LIVE_MAX_SOURCES = 256;
 const LIVE_METRICS_RECENT_EVENTS_LIMIT = 12;
 const LIVE_METRICS_REFRESH_MS = 250;
 const ROLLCODEX_MAPPING_VERSION = 1;
-const FLOATING_PANEL_ID = 'rollcodex-floating-panel';
 
 const ACTOR_KIND_OPTIONS = [
   { value: 'auto', label: 'Auto' },
@@ -80,9 +79,6 @@ const SETTINGS = {
   mappingProfileCache: 'mappingProfileCache',
   mappingProfileFetchedAt: 'mappingProfileFetchedAt',
   liveMetricsEnabled: 'liveMetricsEnabled',
-  floatingPanelCollapsed: 'floatingPanelCollapsed',
-  floatingPanelLeft: 'floatingPanelLeft',
-  floatingPanelTop: 'floatingPanelTop',
 };
 
 const CLIENT_SCOPED_SETTINGS = new Set([
@@ -93,9 +89,6 @@ const CLIENT_SCOPED_SETTINGS = new Set([
   SETTINGS.pendingPairingStatusEndpoint,
   SETTINGS.pendingPairingCode,
   SETTINGS.liveMetricsEnabled,
-  SETTINGS.floatingPanelCollapsed,
-  SETTINGS.floatingPanelLeft,
-  SETTINGS.floatingPanelTop,
 ]);
 
 const activeConnectionApps = new Set();
@@ -135,10 +128,6 @@ const liveMetricsState = {
   participants: new Map(),
   recentEvents: [],
   totals: createEmptyLiveMetricTotals(),
-};
-
-const floatingPanelState = {
-  status: '',
 };
 
 function createEmptyLiveMetricTotals() {
@@ -252,27 +241,9 @@ function stripHtml(value) {
   return (html.textContent || html.innerText || '').trim();
 }
 
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 function normalizeString(value) {
   const normalized = String(value ?? '').trim();
   return normalized || '';
-}
-
-function normalizeSearchText(value) {
-  return normalizeString(value)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 function normalizeNumber(value) {
@@ -291,7 +262,6 @@ function getCollectionEntries(collection) {
   if (Array.isArray(collection)) return collection;
   if (Array.isArray(collection.contents)) return collection.contents;
   if (typeof collection.values === 'function') return Array.from(collection.values());
-  if (typeof collection === 'object') return Object.values(collection);
   return [];
 }
 
@@ -299,24 +269,6 @@ function getCollectionDocument(collection, id) {
   if (!collection || !id) return null;
   if (typeof collection.get === 'function') return collection.get(id) || null;
   return getCollectionEntries(collection).find((entry) => String(entry?.id || entry?._id || '') === String(id)) || null;
-}
-
-function getDocumentFromUuid(uuid) {
-  const normalized = normalizeString(uuid);
-  if (!normalized) return null;
-  try {
-    if (typeof globalThis.fromUuidSync === 'function') return globalThis.fromUuidSync(normalized) || null;
-  } catch (_error) {
-    return null;
-  }
-  return null;
-}
-
-function getItemUuidFromActivityUuid(uuid) {
-  const normalized = normalizeString(uuid);
-  if (!normalized) return '';
-  const match = normalized.match(/^(.*\.Item\.[^.]+)(?:\.Activity\.[^.]+)?$/);
-  return match?.[1] || '';
 }
 
 function getDocumentId(documentLike) {
@@ -331,19 +283,6 @@ function readDocumentFlag(documentLike, key) {
   if (!documentLike || !key) return '';
   if (typeof documentLike.getFlag === 'function') return normalizeString(documentLike.getFlag(MODULE_ID, key));
   return normalizeString(readPath(documentLike, `flags.${MODULE_ID}.${key}`));
-}
-
-function isRollLike(value) {
-  if (!value || typeof value !== 'object') return false;
-  return Boolean(
-    value.formula
-    || value._formula
-    || value.dice
-    || value.terms
-    || value.total !== undefined
-    || value._total !== undefined
-    || value.result !== undefined,
-  );
 }
 
 function normalizeActorKind(value) {
@@ -381,316 +320,63 @@ function resolveMessageUser(message) {
 
 function resolveMessageActor(message) {
   if (message?.actor) return message.actor;
-  if (message?.speakerActor) return message.speakerActor;
-  if (typeof message?.getAssociatedActor === 'function') {
-    const actor = message.getAssociatedActor();
-    if (actor) return actor;
-  }
-
-  const actorUuid = normalizeString(
-    readPath(message, 'flags.dnd5e.actor.uuid')
-    || readPath(message, 'flags.midi-qol.actorUuid')
-    || readPath(message, 'flags.betterrolls5e.actorUuid'),
-  );
-  const uuidActor = getDocumentFromUuid(actorUuid);
-  if (uuidActor) return uuidActor;
-
-  const speaker = message?.speaker || {};
-  if (speaker.scene && speaker.token) {
-    const scene = getCollectionDocument(game.scenes, speaker.scene);
-    const token = getCollectionDocument(scene?.tokens, speaker.token);
-    if (token?.actor) return token.actor;
-  }
-
-  const actorId = normalizeString(
-    speaker.actor
-    || readPath(message, 'flags.core.actorId')
-    || readPath(message, 'flags.dnd5e.actor.id')
-    || readPath(message, 'flags.midi-qol.actorId')
-    || readPath(message, 'flags.betterrolls5e.actorId'),
-  );
+  const actorId = normalizeString(message?.speaker?.actor || readPath(message, 'flags.core.actorId'));
   return getCollectionDocument(game.actors, actorId);
 }
 
 function resolveMessageItem(message, actor) {
   if (message?.item) return message.item;
 
-  const itemUuid = normalizeString(
-    readPath(message, 'flags.dnd5e.item.uuid')
-    || readPath(message, 'flags.dnd5e.itemUuid')
-    || readPath(message, 'flags.dnd5e.roll.itemUuid')
-    || readPath(message, 'flags.dnd5e.use.itemUuid')
-    || readPath(message, 'flags.midi-qol.itemUuid')
-    || readPath(message, 'flags.betterrolls5e.itemUuid')
-    || readPath(message, 'flags.pf2e.origin.itemUuid')
-    || getItemUuidFromActivityUuid(readPath(message, 'flags.dnd5e.activity.uuid')),
-  );
-  const uuidItem = getDocumentFromUuid(itemUuid);
-  if (uuidItem) return uuidItem;
-
-  const directItem = readPath(message, 'flags.dnd5e.item')
-    || readPath(message, 'flags.dnd5e.item.data')
-    || readPath(message, 'flags.dnd5e.itemData')
-    || readPath(message, 'flags.pf2e.origin.item');
-  if (directItem?.id || directItem?._id || directItem?.name) {
-    const itemId = normalizeString(directItem.id || directItem._id);
-    if (actor && itemId) return getCollectionDocument(actor.items, itemId) || directItem;
-    return directItem;
-  }
+  const directItem = readPath(message, 'flags.dnd5e.item') || readPath(message, 'flags.pf2e.origin.item');
+  if (directItem?.id || directItem?._id || directItem?.name) return directItem;
 
   const itemId = normalizeString(
-    readPath(message, 'flags.dnd5e.item.id')
-    || readPath(message, 'flags.dnd5e.itemId')
+    readPath(message, 'flags.dnd5e.itemId')
     || readPath(message, 'flags.dnd5e.use.itemId')
     || readPath(message, 'flags.dnd5e.roll.itemId')
-    || readPath(message, 'flags.midi-qol.itemId')
-    || readPath(message, 'flags.betterrolls5e.itemId')
     || readPath(message, 'flags.pf2e.origin.itemId'),
   );
   if (actor && itemId) return getCollectionDocument(actor.items, itemId);
-
-  const originMessage = typeof message?.getOriginatingMessage === 'function' ? message.getOriginatingMessage() : null;
-  if (originMessage && originMessage !== message) return resolveMessageItem(originMessage, actor);
   return null;
 }
 
 function getMessageRolls(message) {
-  const rolls = getCollectionEntries(message?.rolls)
-    .concat(getCollectionEntries(readPath(message, 'data.rolls')))
-    .concat(getCollectionEntries(readPath(message, 'system.rolls')))
-    .filter(isRollLike);
+  const rolls = getCollectionEntries(message?.rolls);
   if (rolls.length) return rolls;
-  if (isRollLike(message?.roll)) return [message.roll];
-  return [
-    readPath(message, 'flags.dnd5e.rolls'),
-    readPath(message, 'flags.midi-qol.roll'),
-    readPath(message, 'flags.pf2e.context.rolls'),
-  ].flatMap((candidate) => getCollectionEntries(candidate)).filter(isRollLike);
+  if (message?.roll) return [message.roll];
+  const flagRolls = readPath(message, 'flags.dnd5e.rolls');
+  return getCollectionEntries(flagRolls);
 }
 
 function getRollTotal(roll) {
   return normalizeNumber(roll?.total ?? roll?._total ?? roll?.result);
 }
 
-function getRollFormula(roll) {
-  return normalizeString(roll?.formula || roll?._formula);
-}
-
 function getD20Results(roll) {
-  function collectDiceTerms(term) {
-    if (!term || typeof term !== 'object') return [];
-    const nested = getCollectionEntries(term.terms)
-      .concat(getCollectionEntries(term.rolls))
-      .flatMap((entry) => collectDiceTerms(entry));
-    return [term, ...nested];
-  }
-
-  const dice = getCollectionEntries(roll?.dice).length
-    ? getCollectionEntries(roll.dice)
-    : getCollectionEntries(roll?.terms).flatMap((term) => collectDiceTerms(term));
+  const dice = getCollectionEntries(roll?.dice).length ? getCollectionEntries(roll.dice) : getCollectionEntries(roll?.terms);
   const results = [];
   dice.forEach((die) => {
     const faces = Number(die?.faces);
     if (faces !== 20) return;
-    const beforeCount = results.length;
     getCollectionEntries(die?.results).forEach((result) => {
-      if (result?.discarded || result?.rerolled || result?.active === false) return;
+      if (result?.discarded || result?.rerolled) return;
       const value = normalizeNumber(result?.result ?? result?.value);
-      if (value !== null) results.push(value);
-    });
-    if (results.length !== beforeCount) return;
-    getCollectionEntries(die?.values).forEach((result) => {
-      const value = normalizeNumber(result?.result ?? result?.value ?? result);
       if (value !== null) results.push(value);
     });
   });
   return results;
 }
 
-function normalizeDndRollType(value) {
-  const normalized = normalizeSearchText(value);
-  if (!normalized) return '';
-  if (normalized === 'heal') return 'healing';
-  if (normalized === 'skill' || normalized === 'tool' || normalized === 'ability') return 'check';
-  if (normalized === 'death') return 'save';
-  if (normalized === 'other') return 'damage';
-  if (['attack', 'damage', 'healing', 'save', 'check', 'spell', 'resource', 'utility', 'ignored'].includes(normalized)) {
-    return normalized;
-  }
-  return normalized;
-}
-
-function getMessageRollType(message) {
-  return normalizeDndRollType(
-    readPath(message, 'flags.dnd5e.roll.type')
-    || readPath(message, 'flags.pf2e.context.type')
-    || readPath(message, 'flags.sw5e.roll.type'),
-  );
-}
-
-function getMessageActivityType(message) {
-  return normalizeDndRollType(
-    readPath(message, 'flags.dnd5e.activity.type')
-    || readPath(message, 'flags.dnd5e.use.type')
-    || readPath(message, 'flags.pf2e.origin.type'),
-  );
-}
-
-function getRollOptionType(roll) {
-  return normalizeDndRollType(roll?.options?.rollType || roll?.options?.type || roll?.options?.flavor);
-}
-
-function getRollDamageTypes(roll) {
-  const options = roll?.options || {};
-  return getCollectionEntries(options.types)
-    .concat(getCollectionEntries(options.damageTypes))
-    .concat(options.type ? [options.type] : [])
-    .map((type) => normalizeSearchText(type))
-    .filter(Boolean);
-}
-
-function isDamageRoll(roll) {
-  const constructorName = normalizeSearchText(roll?.constructor?.name);
-  if (constructorName.includes('damageroll')) return true;
-  const formula = getRollFormula(roll);
-  if (!formula) return false;
-  if (/\b\d+\s*d\s*(4|6|8|10|12)\b/i.test(formula) && !/\b1?\s*d20\b/i.test(formula)) return true;
-  return getRollDamageTypes(roll).length > 0;
-}
-
-function isD20Roll(roll) {
-  if (getD20Results(roll).length) return true;
-  const constructorName = normalizeSearchText(roll?.constructor?.name);
-  if (constructorName.includes('d20roll')) return true;
-  return /\b1?\s*d20\b/i.test(getRollFormula(roll));
-}
-
-function getRollRole(roll, message) {
-  const rollType = getRollOptionType(roll);
-  if (rollType === 'healing') return 'healing';
-  if (rollType === 'damage') return 'damage';
-  if (['attack', 'save', 'check'].includes(rollType)) return rollType;
-
-  const damageTypes = getRollDamageTypes(roll);
-  if (damageTypes.includes('healing') || damageTypes.includes('temphp')) return 'healing';
-  if (damageTypes.length || isDamageRoll(roll)) {
-    const messageType = getMessageRollType(message);
-    return messageType === 'healing' ? 'healing' : 'damage';
-  }
-
-  const messageType = getMessageRollType(message);
-  if (isD20Roll(roll)) {
-    if (['attack', 'save', 'check'].includes(messageType)) return messageType;
-    return 'attack';
-  }
-
-  return messageType || getMessageActivityType(message) || 'other';
-}
-
-function getRollCriticalCount(roll) {
-  if (roll?.isCritical === true) return 1;
-  const threshold = normalizeNumber(roll?.options?.criticalSuccess || roll?.options?.critical);
-  return getD20Results(roll).filter((value) => value >= (threshold || 20)).length;
-}
-
-function getRollFumbleCount(roll) {
-  if (roll?.isFumble === true) return 1;
-  const threshold = normalizeNumber(roll?.options?.criticalFailure || roll?.options?.fumble);
-  return getD20Results(roll).filter((value) => value <= (threshold || 1)).length;
-}
-
-function readMidiQolTotals(message) {
-  const midi = readPath(message, 'flags.midi-qol');
-  if (!midi) return { damage: 0, healing: 0 };
-
-  const detailSources = [
-    { total: midi.damageTotal, detail: midi.damageDetail },
-    { total: midi.otherDamageTotal, detail: midi.otherDamageDetail },
-    { total: midi.bonusDamageTotal, detail: midi.bonusDamageDetail },
-  ];
-  let damage = 0;
-  let healing = 0;
-
-  detailSources.forEach((source) => {
-    const detail = getCollectionEntries(source.detail);
-    const total = normalizeNumber(source.total);
-    if (detail.length) {
-      detail.forEach((entry) => {
-        const amount = normalizeNumber(entry?.damage ?? entry?.value ?? entry?.total);
-        if (amount === null) return;
-        const type = normalizeSearchText(entry?.type || entry?.damageType);
-        if (type === 'healing' || type === 'temphp') healing += amount;
-        else damage += amount;
-      });
-    } else if (total !== null) {
-      damage += total;
-    }
-  });
-
-  return { damage, healing };
-}
-
-function readBetterRollsFigures(message) {
-  const flags = readPath(message, 'flags.betterrolls5e');
-  const entries = getCollectionEntries(flags?.entries);
-  if (!entries.length) return null;
-
-  let rollTotal = 0;
-  let rollCount = 0;
-  const d20Results = [];
-  let criticalCount = 0;
-  let fumbleCount = 0;
-  let damage = 0;
-  let healing = 0;
-
-  entries.forEach((entry) => {
-    if (entry?.type === 'multiroll' && ['attack', 'save', 'check'].includes(normalizeDndRollType(entry.rollType))) {
-      const selected = getCollectionEntries(entry.entries).find((candidate) => !candidate?.ignored)
-        || getCollectionEntries(entry.entries)[0];
-      const total = normalizeNumber(selected?.total ?? selected?.roll?.total);
-      const die = normalizeNumber(selected?.roll?.terms?.[0]?.total ?? selected?.roll?.dice?.[0]?.total);
-      if (total !== null) {
-        rollTotal += total;
-        rollCount += 1;
-      }
-      if (die !== null) d20Results.push(die);
-      if (selected?.isCrit) criticalCount += 1;
-      if (die === 1) fumbleCount += 1;
-    }
-
-    if (entry?.type === 'damage-group') {
-      getCollectionEntries(entry.entries).forEach((subEntry) => {
-        let amount = normalizeNumber(subEntry?.baseRoll?.total ?? subEntry?.total);
-        const critAmount = normalizeNumber(subEntry?.critRoll?.total);
-        if (amount === null) return;
-        if (critAmount !== null) amount += critAmount;
-        const damageType = normalizeSearchText(subEntry?.damageType || subEntry?.type);
-        if (damageType === 'healing' || damageType === 'temphp') healing += amount;
-        else damage += amount;
-      });
-    }
-  });
-
-  return { rollTotal, rollCount, d20Results, criticalCount, fumbleCount, damage, healing };
-}
-
-function inferActionType({ message, item, rawText, rolls }) {
+function inferActionType({ item, rawText, rolls }) {
   const configured = normalizeItemActionType(readDocumentFlag(item, FLAGS.itemActionType));
   if (configured && configured !== 'auto') return configured;
 
-  const rollType = getMessageRollType(message);
-  const activityType = getMessageActivityType(message);
-  if (['attack', 'damage', 'healing', 'save', 'check', 'utility', 'resource', 'ignored'].includes(rollType)) return rollType;
-  if (['attack', 'damage', 'healing', 'save', 'check', 'utility', 'resource', 'ignored'].includes(activityType)) return activityType;
-
   const itemType = normalizeString(item?.type).toLowerCase();
-  const text = normalizeSearchText(rawText);
-  const hasDamageLabel = /\b(damage|dmg|degat|degats|blessure)\b/.test(text);
-  const hasHealingLabel = /\b(heal|healing|soin|soins|soigne|restaure|regain)\b/.test(text);
-  if (inferAmountFromText(rawText, 'healing') !== null || (rolls.length && hasHealingLabel)) return 'healing';
-  if (inferAmountFromText(rawText, 'damage') !== null || (rolls.length && hasDamageLabel)) return 'damage';
+  const text = normalizeString(rawText).toLowerCase();
+  if (/heal|healing|soin|soigne|restaure|regain/.test(text)) return 'healing';
+  if (/damage|dmg|degat|degats|dégât|dégâts|blessure/.test(text)) return 'damage';
   if (/saving throw|jet de sauvegarde|sauvegarde/.test(text)) return 'save';
-  if (/ability check|skill check|test de competence|test /.test(text)) return 'check';
+  if (/ability check|skill check|test de competence|test de compétence|test /.test(text)) return 'check';
   if (itemType === 'spell') return 'spell';
   if (itemType === 'weapon') return 'attack';
   if (itemType === 'feat') return 'utility';
@@ -708,122 +394,11 @@ function sumRollTotals(rolls) {
   }, 0);
 }
 
-function looksLikeStaticAttackDescription(rawText) {
-  const text = normalizeSearchText(rawText);
-  return /\b(hit|touche)\s*:/.test(text)
-    && /\b(weapon attack|attaque d arme|to hit|toucher|range|portee|allonge)\b/.test(text);
-}
-
-function readSafeNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
-
-function collectStandaloneNumbers(text) {
-  const withoutDiceFormula = String(text || '').replace(/\b\d+\s*d\s*\d+(?:\s*[+-]\s*\d+)?/gi, ' ');
-  const matches = withoutDiceFormula.match(/\b\d{1,4}\b/g) || [];
-  return matches
-    .map((match) => readSafeNumber(match))
-    .filter((number) => number !== null);
-}
-
-function inferAmountFromText(rawText, kind = 'damage') {
-  if (looksLikeStaticAttackDescription(rawText)) return null;
-
-  const text = normalizeSearchText(rawText);
-  if (!text) return null;
-
-  const keywords = kind === 'healing'
-    ? ['heal', 'healing', 'soin', 'soins', 'soigne', 'restaure', 'regain']
-    : ['damage', 'dmg', 'degat', 'degats', 'blessure'];
-  const keywordPattern = keywords.join('|');
-  const keywordMatch = text.match(new RegExp(`\\b(${keywordPattern})\\b`));
-
-  if (keywordMatch?.index !== undefined) {
-    const segment = text.slice(keywordMatch.index, keywordMatch.index + 96);
-    const numbers = collectStandaloneNumbers(segment);
-    if (numbers.length) return numbers[numbers.length - 1];
-  }
-
-  const beforeKeywordMatch = text.match(new RegExp(`\\b(\\d{1,4})\\s*(?:${keywordPattern})\\b`));
-  const beforeKeywordAmount = readSafeNumber(beforeKeywordMatch?.[1]);
-  return beforeKeywordAmount;
-}
-
-function inferRollNaturalFromText(rawText) {
-  const text = normalizeSearchText(rawText);
-  const naturalMatch = text.match(/\b(?:nat|natural|naturel|critique|critical)\s*(20|1)\b/);
-  if (naturalMatch) return Number(naturalMatch[1]);
-  const d20Match = text.match(/\bd20\D{0,24}(20|1)\b/);
-  return d20Match ? Number(d20Match[1]) : null;
-}
-
-function inferRollTotalFromText(rawText) {
-  if (looksLikeStaticAttackDescription(rawText)) return null;
-
-  const text = normalizeSearchText(rawText);
-  const totalMatch = text.match(/\b(?:total|result|resultat|jet|roll)\D{0,24}(\d{1,3})\b/);
-  const total = readSafeNumber(totalMatch?.[1]);
-  if (total !== null) return total;
-
-  const d20Index = text.search(/\b1?\s*d20\b/);
-  if (d20Index < 0) return null;
-  const segment = text.slice(d20Index, d20Index + 96);
-  const numbers = collectStandaloneNumbers(segment).filter((number) => number >= 0 && number <= 100);
-  return numbers.length ? numbers[numbers.length - 1] : null;
-}
-
-function getMessageFigures({ message, rawText, item, rolls }) {
-  const betterRollsFigures = readBetterRollsFigures(message);
-  const rollGroups = rolls.reduce((groups, roll) => {
-    const role = getRollRole(roll, message);
-    if (['attack', 'save', 'check'].includes(role)) groups.d20.push(roll);
-    else if (role === 'healing') groups.healing.push(roll);
-    else if (role === 'damage') groups.damage.push(roll);
-    else groups.other.push(roll);
-    return groups;
-  }, { d20: [], damage: [], healing: [], other: [] });
-
-  const d20Results = rollGroups.d20.flatMap((roll) => getD20Results(roll));
-  const textNatural = d20Results.length || betterRollsFigures?.d20Results?.length ? null : inferRollNaturalFromText(rawText);
-  if (textNatural !== null) d20Results.push(textNatural);
-
-  const textRollTotal = rollGroups.d20.length || betterRollsFigures?.rollCount ? null : inferRollTotalFromText(rawText);
-  const rollCount = rollGroups.d20.length || betterRollsFigures?.rollCount || (textRollTotal !== null ? 1 : 0);
-  const rollTotal = rollGroups.d20.length
-    ? sumRollTotals(rollGroups.d20)
-    : (betterRollsFigures?.rollTotal || textRollTotal || 0);
-  const actionType = inferActionType({ message, item, rawText, rolls });
-  const textDamage = inferAmountFromText(rawText, 'damage');
-  const textHealing = inferAmountFromText(rawText, 'healing');
-  const midiTotals = readMidiQolTotals(message);
-  const rollDamage = sumRollTotals(rollGroups.damage);
-  const rollHealing = sumRollTotals(rollGroups.healing);
-  const damage = rollDamage
-    || betterRollsFigures?.damage
-    || midiTotals.damage
-    || (actionType === 'damage' ? textDamage || 0 : 0);
-  const healing = rollHealing
-    || betterRollsFigures?.healing
-    || midiTotals.healing
-    || (actionType === 'healing' ? textHealing || 0 : 0);
-  const criticalCount = rollGroups.d20.reduce((total, roll) => total + getRollCriticalCount(roll), 0)
-    || betterRollsFigures?.criticalCount
-    || d20Results.filter((value) => value === 20).length;
-  const fumbleCount = rollGroups.d20.reduce((total, roll) => total + getRollFumbleCount(roll), 0)
-    || betterRollsFigures?.fumbleCount
-    || d20Results.filter((value) => value === 1).length;
-
-  return {
-    actionType,
-    rollCount,
-    rollTotal,
-    d20Results: d20Results.concat(betterRollsFigures?.d20Results || []),
-    criticalCount,
-    fumbleCount,
-    damage,
-    healing,
-  };
+function inferAmountFromText(rawText) {
+  const matches = normalizeString(rawText).match(/\b\d{1,4}\b/g) || [];
+  if (!matches.length) return 0;
+  const last = Number(matches[matches.length - 1]);
+  return Number.isFinite(last) ? last : 0;
 }
 
 function createParticipant({ key, speaker, actor, actorKind, user }) {
@@ -1034,35 +609,28 @@ function buildRollCodexMappingSnapshot() {
   };
 }
 
-function serializeRollForSnapshot(roll, message) {
+function serializeRollForSnapshot(roll) {
   if (!roll) return null;
   return {
-    formula: getRollFormula(roll),
+    formula: normalizeString(roll.formula),
     total: getRollTotal(roll),
     d20: getD20Results(roll),
-    role: getRollRole(roll, message),
-    damage_types: getRollDamageTypes(roll),
   };
 }
 
 function buildMessageRollSnapshot(message, { actor, item, rawText }) {
-  const rawRolls = getMessageRolls(message);
-  const rolls = rawRolls.map((roll) => serializeRollForSnapshot(roll, message)).filter(Boolean);
-  const figures = getMessageFigures({ message, rawText, item, rolls: rawRolls });
-  if (!rolls.length && !actor && !item && !figures.rollCount && !figures.damage && !figures.healing) return null;
+  const rolls = getMessageRolls(message).map((roll) => serializeRollForSnapshot(roll)).filter(Boolean);
+  if (!rolls.length && !actor && !item) return null;
+  const actionType = inferActionType({ item, rawText, rolls: getMessageRolls(message) });
   return {
     actor_id: getDocumentId(actor) || null,
     actor_name: getDocumentName(actor) || null,
     actor_kind: actor ? inferActorKind(actor) : null,
     item_id: getDocumentId(item) || null,
     item_name: getDocumentName(item) || null,
-    action_type: figures.actionType,
+    action_type: actionType,
     action_name: getActionName(item, rawText, ''),
     rolls,
-    roll_total_hint: figures.rollCount ? figures.rollTotal : null,
-    roll_natural_hint: figures.d20Results.length ? figures.d20Results[0] : null,
-    damage_total_hint: figures.damage || null,
-    heal_total_hint: figures.healing || null,
   };
 }
 
@@ -1134,7 +702,7 @@ function getAutoSnapshotSettings() {
   return {
     enabled: Boolean(game.settings.get(MODULE_ID, SETTINGS.autoSnapshotEnabled)),
     minIntervalMs: Number.isFinite(minInterval) && minInterval > 0 ? minInterval : AUTO_SESSION_CAPTURE_MIN_INTERVAL_MS,
-    idleMinutes: Number.isFinite(idleMinutes) && idleMinutes >= 0 ? idleMinutes : DEFAULT_IDLE_MINUTES,
+    idleMinutes: Number.isFinite(idleMinutes) && idleMinutes > 0 ? idleMinutes : DEFAULT_IDLE_MINUTES,
     lastSentAt: game.settings.get(MODULE_ID, SETTINGS.autoSnapshotLastSentAt),
     lastError: game.settings.get(MODULE_ID, SETTINGS.autoSnapshotLastError),
     lastMessageId: game.settings.get(MODULE_ID, SETTINGS.autoSnapshotLastMessageId),
@@ -1155,7 +723,6 @@ function formatDateTime(value) {
 
 function refreshConnectionApps() {
   activeConnectionApps.forEach((app) => app.render(false));
-  renderFloatingPanel();
 }
 
 function refreshLiveMetricsApps() {
@@ -1195,25 +762,27 @@ function recordLiveMetricsFromMessage(message) {
   const user = resolveMessageUser(message);
   const rolls = getMessageRolls(message);
   const actorKind = inferActorKind(actor);
-  const figures = getMessageFigures({ message, rawText, item, rolls });
-  const actionType = figures.actionType;
+  const actionType = inferActionType({ item, rawText, rolls });
   if (actorKind === 'ignored' || actionType === 'ignored') return;
 
   const speaker = getActorSpeakerAlias(actor, message.speaker?.alias || message.alias || getDocumentName(user, 'Foundry'));
-  const actionName = getActionName(item, rawText, figures.rollCount ? 'Jet' : 'Message');
+  const actionName = getActionName(item, rawText, rolls.length ? 'Jet' : 'Message');
   const key = getParticipantKey({ actor, user, speaker });
   const participant = liveMetricsState.participants.get(key)
     || createParticipant({ key, speaker, actor, actorKind, user });
 
-  const criticals = figures.criticalCount;
-  const fumbles = figures.fumbleCount;
-  const damage = figures.damage;
-  const healing = figures.healing;
+  const d20Results = rolls.flatMap((roll) => getD20Results(roll));
+  const criticals = d20Results.filter((value) => value === 20).length;
+  const fumbles = d20Results.filter((value) => value === 1).length;
+  const rollTotal = sumRollTotals(rolls);
+  const amountFromText = inferAmountFromText(rawText);
+  const damage = actionType === 'damage' ? (rollTotal || amountFromText) : 0;
+  const healing = actionType === 'healing' ? (rollTotal || amountFromText) : 0;
 
   participant.speaker = speaker;
   participant.actorKind = actorKind;
   participant.messages += 1;
-  participant.rolls += figures.rollCount;
+  participant.rolls += rolls.length;
   participant.criticals += criticals;
   participant.fumbles += fumbles;
   participant.damage += damage;
@@ -1222,7 +791,7 @@ function recordLiveMetricsFromMessage(message) {
   liveMetricsState.participants.set(key, participant);
 
   liveMetricsState.totals.messages += 1;
-  liveMetricsState.totals.rolls += figures.rollCount;
+  liveMetricsState.totals.rolls += rolls.length;
   liveMetricsState.totals.criticals += criticals;
   liveMetricsState.totals.fumbles += fumbles;
   liveMetricsState.totals.damage += damage;
@@ -1236,7 +805,7 @@ function recordLiveMetricsFromMessage(message) {
     actionName,
     actionType,
     actionTypeLabel: getActionTypeLabel(actionType),
-    rollTotal: figures.rollCount ? formatMetricNumber(figures.rollTotal) : '',
+    rollTotal: rolls.length ? formatMetricNumber(rollTotal) : '',
     damage: damage ? formatMetricNumber(damage) : '',
     healing: healing ? formatMetricNumber(healing) : '',
   });
@@ -1279,201 +848,6 @@ function summarizeLiveMetricsForTemplate() {
       healing: formatMetricNumber(liveMetricsState.totals.healing),
     },
   };
-}
-
-function getFloatingPanelSettings() {
-  return {
-    collapsed: Boolean(game.settings.get(MODULE_ID, SETTINGS.floatingPanelCollapsed)),
-    left: Number(game.settings.get(MODULE_ID, SETTINGS.floatingPanelLeft)) || 96,
-    top: Number(game.settings.get(MODULE_ID, SETTINGS.floatingPanelTop)) || 92,
-  };
-}
-
-async function patchFloatingPanelSettings(patch) {
-  const writes = [];
-  if (Object.prototype.hasOwnProperty.call(patch, 'collapsed')) {
-    writes.push(game.settings.set(MODULE_ID, SETTINGS.floatingPanelCollapsed, Boolean(patch.collapsed)));
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, 'left')) {
-    writes.push(game.settings.set(MODULE_ID, SETTINGS.floatingPanelLeft, Math.max(8, Math.round(Number(patch.left) || 96))));
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, 'top')) {
-    writes.push(game.settings.set(MODULE_ID, SETTINGS.floatingPanelTop, Math.max(8, Math.round(Number(patch.top) || 92))));
-  }
-  await Promise.all(writes);
-}
-
-function setFloatingPanelStatus(status) {
-  floatingPanelState.status = normalizeString(status);
-  renderFloatingPanel();
-}
-
-function beginFloatingPanelDrag(event) {
-  const panel = document.getElementById(FLOATING_PANEL_ID);
-  if (!panel) return;
-  event.preventDefault();
-
-  const rect = panel.getBoundingClientRect();
-  const startX = event.clientX;
-  const startY = event.clientY;
-  const startLeft = rect.left;
-  const startTop = rect.top;
-
-  const onMove = (moveEvent) => {
-    const maxLeft = Math.max(8, window.innerWidth - rect.width - 8);
-    const maxTop = Math.max(8, window.innerHeight - rect.height - 8);
-    const nextLeft = Math.min(maxLeft, Math.max(8, Math.round(startLeft + moveEvent.clientX - startX)));
-    const nextTop = Math.min(maxTop, Math.max(8, Math.round(startTop + moveEvent.clientY - startY)));
-    panel.style.left = `${nextLeft}px`;
-    panel.style.top = `${nextTop}px`;
-  };
-
-  const onUp = async () => {
-    document.removeEventListener('pointermove', onMove);
-    document.removeEventListener('pointerup', onUp);
-    const nextRect = panel.getBoundingClientRect();
-    await patchFloatingPanelSettings({ left: nextRect.left, top: nextRect.top });
-  };
-
-  document.addEventListener('pointermove', onMove);
-  document.addEventListener('pointerup', onUp);
-}
-
-async function toggleFloatingPanelCollapsed() {
-  const settings = getFloatingPanelSettings();
-  await patchFloatingPanelSettings({ collapsed: !settings.collapsed });
-  setFloatingPanelStatus(settings.collapsed ? 'Panneau ouvert.' : 'Panneau reduit.');
-}
-
-async function toggleFloatingAutoSnapshot() {
-  const settings = getAutoSnapshotSettings();
-  await game.settings.set(MODULE_ID, SETTINGS.autoSnapshotEnabled, !settings.enabled);
-  setFloatingPanelStatus(!settings.enabled ? 'Auto-capture active.' : 'Auto-capture suspendue.');
-}
-
-async function sendFloatingSnapshot() {
-  if (!canCurrentUserSendSnapshots()) {
-    ui.notifications.warn('Seul le MJ primaire peut envoyer une capture RollCodex.');
-    return;
-  }
-  setFloatingPanelStatus('Envoi de la capture...');
-  try {
-    const result = await sendSnapshotPayload({ mode: 'manual', reason: 'floating_panel_button' });
-    const message = result.blockedResponse
-      ? 'Capture transmise. Verifiez RollCodex.'
-      : `Capture envoyee (${result.messageCount} messages).`;
-    ui.notifications.info(message);
-    setFloatingPanelStatus(message);
-  } catch (error) {
-    const message = error?.message || 'Capture RollCodex refusee.';
-    ui.notifications.error(message);
-    setFloatingPanelStatus(message);
-  }
-}
-
-async function endFloatingSession() {
-  if (!canCurrentUserSendSnapshots()) {
-    ui.notifications.warn('Seul le MJ primaire peut terminer la session RollCodex.');
-    return;
-  }
-  setFloatingPanelStatus('Fin de session...');
-  try {
-    const result = await sendSnapshotPayload({
-      mode: 'manual',
-      reason: 'manual_session_end',
-      skipIfEmpty: true,
-    });
-    const message = result.skipped
-      ? 'Aucun nouveau message a capturer.'
-      : result.blockedResponse
-        ? 'Fin de session transmise. Verifiez RollCodex.'
-        : `Fin de session envoyee (${result.messageCount} messages).`;
-    ui.notifications.info(message);
-    setFloatingPanelStatus(message);
-  } catch (error) {
-    const message = error?.message || 'Fin de session RollCodex refusee.';
-    ui.notifications.error(message);
-    setFloatingPanelStatus(message);
-  }
-}
-
-function bindFloatingPanelEvents(panel) {
-  panel.querySelector('[data-rollcodex-floating-drag]')?.addEventListener('pointerdown', beginFloatingPanelDrag);
-  panel.querySelector('[data-rollcodex-floating-collapse]')?.addEventListener('click', toggleFloatingPanelCollapsed);
-  panel.querySelector('[data-rollcodex-floating-config]')?.addEventListener('click', () => new RollCodexConnectionApp().render(true));
-  panel.querySelector('[data-rollcodex-floating-live]')?.addEventListener('click', () => new RollCodexLivePanel().render(true));
-  panel.querySelector('[data-rollcodex-floating-send]')?.addEventListener('click', sendFloatingSnapshot);
-  panel.querySelector('[data-rollcodex-floating-end]')?.addEventListener('click', endFloatingSession);
-  panel.querySelector('[data-rollcodex-floating-auto]')?.addEventListener('click', toggleFloatingAutoSnapshot);
-}
-
-function renderFloatingPanel() {
-  if (typeof game === 'undefined' || !game.ready) return;
-
-  let panel = document.getElementById(FLOATING_PANEL_ID);
-  if (!panel) {
-    panel = document.createElement('aside');
-    panel.id = FLOATING_PANEL_ID;
-    document.body.appendChild(panel);
-  }
-
-  const settings = getFloatingPanelSettings();
-  const connection = getStoredConnection();
-  const connected = hasStoredConnection(connection);
-  const canSend = canCurrentUserSendSnapshots();
-  const liveMetrics = summarizeLiveMetricsForTemplate();
-  const autoSettings = getAutoSnapshotSettings();
-  const topParticipant = liveMetrics.participants?.[0]?.speaker || 'Table Foundry';
-  const target = connected
-    ? `${connection.workspaceLabel || 'Registre'} / ${connection.systemLabel || 'Systeme'}`
-    : 'Monde non connecte';
-  const status = floatingPanelState.status || (connected ? 'Connecte a RollCodex.' : 'Pret pour connexion.');
-
-  panel.className = `rollcodex-floating-panel ${settings.collapsed ? 'is-collapsed' : ''} ${connected ? 'is-connected' : 'is-idle'}`;
-  panel.style.left = `${Math.max(8, settings.left)}px`;
-  panel.style.top = `${Math.max(8, settings.top)}px`;
-
-  if (settings.collapsed) {
-    panel.innerHTML = `
-      <div class="rollcodex-floating-panel__compact">
-        <button type="button" class="rollcodex-floating-panel__drag" data-rollcodex-floating-drag title="Deplacer"><i class="fas fa-grip-lines"></i></button>
-        <div class="rollcodex-floating-panel__compact-body">
-          <strong>RollCodex</strong>
-          <span>${escapeHtml(connected ? 'Connecte' : 'Non connecte')}</span>
-        </div>
-        <button type="button" class="rollcodex-floating-panel__action" data-rollcodex-floating-collapse title="Ouvrir">Ouvrir</button>
-      </div>
-    `;
-    bindFloatingPanelEvents(panel);
-    return;
-  }
-
-  panel.innerHTML = `
-    <header class="rollcodex-floating-panel__header">
-      <button type="button" class="rollcodex-floating-panel__drag" data-rollcodex-floating-drag title="Deplacer"><i class="fas fa-grip-lines"></i></button>
-      <div class="rollcodex-floating-panel__title">
-        <strong>RollCodex Live</strong>
-        <span>${escapeHtml(target)}</span>
-      </div>
-      <button type="button" class="rollcodex-floating-panel__action" data-rollcodex-floating-collapse title="Reduire">-</button>
-    </header>
-    <div class="rollcodex-floating-panel__metrics">
-      <span><strong>${escapeHtml(liveMetrics.totals.messages)}</strong> msg</span>
-      <span><strong>${escapeHtml(liveMetrics.totals.rolls)}</strong> jets</span>
-      <span><strong>${escapeHtml(liveMetrics.totals.damage)}</strong> degats</span>
-      <span><strong>${escapeHtml(liveMetrics.totals.healing)}</strong> soins</span>
-    </div>
-    <p class="rollcodex-floating-panel__status">${escapeHtml(status)}</p>
-    <p class="rollcodex-floating-panel__meta">Actif : ${escapeHtml(topParticipant)} · Auto ${autoSettings.enabled ? 'ON' : 'OFF'}</p>
-    <div class="rollcodex-floating-panel__buttons">
-      <button type="button" data-rollcodex-floating-config>${connected ? 'Configurer' : 'Connecter'}</button>
-      <button type="button" data-rollcodex-floating-live>Live</button>
-      <button type="button" data-rollcodex-floating-send ${canSend && connected ? '' : 'disabled'}>Envoyer</button>
-      <button type="button" data-rollcodex-floating-end ${canSend && connected ? '' : 'disabled'}>Terminer</button>
-      <button type="button" data-rollcodex-floating-auto ${canSend && connected ? '' : 'disabled'}>Auto ${autoSettings.enabled ? 'ON' : 'OFF'}</button>
-    </div>
-  `;
-  bindFloatingPanelEvents(panel);
 }
 
 function getPrimaryActiveGmUserId() {
@@ -1532,7 +906,6 @@ function buildSnapshotPayload(connection, { mode = 'manual', reason = 'manual', 
     : `${connection.connectionId}:${mode}:${idempotencyToken}:${generateState()}`;
 
   const mappingHints = getCurrentMappingHints();
-  const measureMatches = globalThis.RollCodexMeasures?.getMeasureMatchesForSnapshot?.() || [];
   const payload = {
     provider: 'foundry',
     connection_id: connection.connectionId,
@@ -1557,9 +930,6 @@ function buildSnapshotPayload(connection, { mode = 'manual', reason = 'manual', 
   };
 
   if (mappingHints.length > 0) {
-  }
-  if (measureMatches.length > 0) {
-    payload.measure_matches = measureMatches;
     payload.mapping_hints = mappingHints;
   }
 
@@ -1589,7 +959,7 @@ function describeSnapshotError(payload, fallbackMessage) {
     return 'RollCodex limite temporairement les captures de cette connexion. Reessayez dans quelques instants.';
   }
 
-  return payload?.message || payload?.error || fallbackMessage || 'Capture RollCodex refusee.';
+  return payload?.message || fallbackMessage || 'Capture RollCodex refusee.';
 }
 
 async function postSnapshotPayload(endpoint, snapshotPayload) {
@@ -1947,7 +1317,7 @@ function buildMappingProfileIndex(profile) {
 
   const pushMapping = (sourceKind, sourceKey, mapping) => {
     if (!sourceKind || !sourceKey) return;
-    const indexKey = `${sourceKind}${String(sourceKey).toLowerCase()}`;
+    const indexKey = `${sourceKind} ${String(sourceKey).toLowerCase()}`;
     const existing = index.get(indexKey);
     if (!existing) {
       index.set(indexKey, mapping);
@@ -1983,7 +1353,7 @@ function resolveMappingFromProfile(sourceKind, sourceKey) {
   if (!profile || !mappingProfileState.index) return null;
   if (!sourceKind || !sourceKey) return null;
 
-  const indexKey = `${sourceKind}${String(sourceKey).toLowerCase()}`;
+  const indexKey = `${sourceKind} ${String(sourceKey).toLowerCase()}`;
   return mappingProfileState.index.get(indexKey) || null;
 }
 
@@ -2090,19 +1460,32 @@ function getMessageUser(message) {
 }
 
 function extractRollFigures(message) {
-  const actor = resolveMessageActor(message);
-  const item = resolveMessageItem(message, actor);
-  const rawText = stripHtml(message?.content || '');
-  const rolls = getMessageRolls(message);
-  const figures = getMessageFigures({ message, rawText, item, rolls });
+  const rolls = Array.isArray(message?.rolls) ? message.rolls : [];
+  let total = 0;
+  let count = 0;
+  let nat20 = 0;
+  let damageHint = 0;
 
-  return {
-    total: figures.rollTotal,
-    count: figures.rollCount,
-    nat20: figures.criticalCount,
-    damageHint: figures.damage,
-    healHint: figures.healing,
-  };
+  rolls.forEach((roll) => {
+    if (!roll) return;
+    const rollTotal = Number(roll?.total ?? roll?._total ?? 0);
+    if (Number.isFinite(rollTotal)) {
+      total += rollTotal;
+      count += 1;
+      if (rollTotal >= 18) damageHint += rollTotal;
+    }
+    const terms = Array.isArray(roll?.terms) ? roll.terms : [];
+    terms.forEach((term) => {
+      const faces = Number(term?.faces);
+      if (faces !== 20) return;
+      const results = Array.isArray(term?.results) ? term.results : [];
+      results.forEach((result) => {
+        if (Number(result?.result) === 20) nat20 += 1;
+      });
+    });
+  });
+
+  return { total, count, nat20, damageHint };
 }
 
 function extractMessageObservations(message) {
@@ -2185,12 +1568,9 @@ function recordLiveObservation(message) {
   if (rollFigures.damageHint) {
     liveSessionState.totals.damageTotal += rollFigures.damageHint;
   }
-  if (rollFigures.healHint) {
-    liveSessionState.totals.healTotal += rollFigures.healHint;
-  }
 
   observations.forEach((observation) => {
-    const sourceMapKey = `${observation.source_kind}\u001f${observation.source_key}`;
+    const sourceMapKey = `${observation.source_kind} ${observation.source_key}`;
     let entry = liveSessionState.sources.get(sourceMapKey);
     if (!entry) {
       if (liveSessionState.sources.size >= LIVE_MAX_SOURCES) return;
@@ -2890,20 +2270,6 @@ class RollCodexLivePanel extends FormApplication {
       return b.observation_count - a.observation_count;
     });
 
-    const measuresData = globalThis.RollCodexMeasures?.getSelectedMeasureData?.() || { measure: null, ranking: [] };
-    const availableMeasures = globalThis.RollCodexMeasures?.getActiveMeasures?.() || [];
-    const selectedMeasureId = globalThis.RollCodexMeasures?.selectedMeasureId || '';
-    const hasMeasures = availableMeasures.length > 0;
-    const showLegacyTotals = !selectedMeasureId;
-    const showMeasureRanking = Boolean(selectedMeasureId && measuresData.measure);
-
-    const ranking = measuresData.ranking.slice(0, 10).map((entry, index) => ({
-      ...entry,
-      rank: index + 1,
-    }));
-    const totalRankingCount = measuresData.ranking.length;
-    const unresolvedRankingCount = measuresData.ranking.filter((entry) => !entry.resolved).length;
-
     return {
       connected,
       isGmPrimary,
@@ -2923,15 +2289,6 @@ class RollCodexLivePanel extends FormApplication {
       unresolvedCount: liveSessionState.unresolvedCount,
       sources,
       hasSources: sources.length > 0,
-      hasMeasures,
-      availableMeasures: availableMeasures.map((m) => ({ ...m, selected: m.id === selectedMeasureId })),
-      selectedMeasure: measuresData.measure,
-      showLegacyTotals,
-      showMeasureRanking,
-      ranking,
-      hasRanking: ranking.length > 0,
-      totalRankingCount,
-      unresolvedRankingCount,
     };
   }
 
@@ -2946,12 +2303,8 @@ class RollCodexLivePanel extends FormApplication {
       this.reloadProfile().catch((error) => ui.notifications.error(error.message)));
     html.find('[data-action="send-snapshot"]').on('click', () =>
       this.sendSnapshotNow().catch((error) => ui.notifications.error(error.message)));
-    html.find('[data-action="end-session"]').on('click', () =>
-      endFloatingSession().catch((error) => ui.notifications.error(error.message)));
     html.find('[data-action="reset-session"]').on('click', () =>
       this.resetSession().catch((error) => ui.notifications.error(error.message)));
-    html.find('[data-action="select-measure"]').on('change', (event) =>
-      this.selectMeasure(event.currentTarget.value).catch((error) => ui.notifications.error(error.message)));
   }
 
   async _updateObject() {}
@@ -2984,13 +2337,6 @@ class RollCodexLivePanel extends FormApplication {
     }
     const hintsCount = result.mappingHintCount ?? 0;
     ui.notifications.info(`Capture envoyee (${result.messageCount} messages, ${hintsCount} hints).`);
-  }
-
-  async selectMeasure(measureId) {
-    if (globalThis.RollCodexMeasures?.selectMeasure) {
-      await globalThis.RollCodexMeasures.selectMeasure(measureId);
-    }
-    this.render(true);
   }
 
   async resetSession() {
@@ -3052,27 +2398,6 @@ Hooks.once('init', () => {
     hint: 'Affiche un kikimeter local dans Foundry. Ces metriques ne sont pas envoyees a RollCodex.',
   });
 
-  registerSetting(SETTINGS.floatingPanelCollapsed, {
-    scope: 'client',
-    config: false,
-    type: Boolean,
-    default: false,
-  });
-
-  registerSetting(SETTINGS.floatingPanelLeft, {
-    scope: 'client',
-    config: false,
-    type: Number,
-    default: 96,
-  });
-
-  registerSetting(SETTINGS.floatingPanelTop, {
-    scope: 'client',
-    config: false,
-    type: Number,
-    default: 92,
-  });
-
   Object.values(SETTINGS)
     .filter((key) => ![
       SETTINGS.appUrl,
@@ -3080,9 +2405,6 @@ Hooks.once('init', () => {
       SETTINGS.autoSnapshotMinIntervalMs,
       SETTINGS.autoSnapshotIdleMinutes,
       SETTINGS.liveMetricsEnabled,
-      SETTINGS.floatingPanelCollapsed,
-      SETTINGS.floatingPanelLeft,
-      SETTINGS.floatingPanelTop,
     ].includes(key))
     .forEach((key) => registerSetting(key, {
       config: false,
@@ -3124,9 +2446,6 @@ Hooks.once('ready', async () => {
   if (game.settings.get(MODULE_ID, SETTINGS.liveMetricsEnabled) && !liveMetricsState.startedAt) {
     resetLiveMetricsState();
   }
-  renderFloatingPanel();
-
-  globalThis.refreshLivePanels = refreshLivePanels;
 
   if (!game.user?.isGM) return;
   try {
