@@ -2294,8 +2294,25 @@ function registerLiveMetricsHooks() {
   if (liveMetricsState.hookRegistered) return;
   liveMetricsState.hookRegistered = true;
 
+  let rebuildTimer = null;
+  const scheduleMetricsRebuild = () => {
+    if (rebuildTimer) return;
+    rebuildTimer = window.setTimeout(() => {
+      rebuildTimer = null;
+      try {
+        rebuildLiveMetricsFromChatHistory({ reset: true });
+      } catch (error) {
+        console.warn('[RollCodex] Live metrics rebuild failed', error);
+      }
+    }, LIVE_METRICS_REFRESH_MS);
+  };
+
   Hooks.on('createChatMessage', (message) => {
     recordLiveMetricsFromMessage(message);
+  });
+
+  Hooks.on('updateChatMessage', () => {
+    scheduleMetricsRebuild();
   });
 }
 
@@ -2768,12 +2785,30 @@ function getCurrentMappingHints() {
 function registerLiveObservationHooks() {
   if (liveSessionState.hookRegistered) return;
   liveSessionState.hookRegistered = true;
+
+  let rebuildTimer = null;
+  const scheduleSessionRebuild = () => {
+    if (rebuildTimer) return;
+    rebuildTimer = window.setTimeout(() => {
+      rebuildTimer = null;
+      try {
+        rebuildLiveSessionFromChatHistory({ reset: true });
+      } catch (error) {
+        console.warn('[RollCodex] Live session rebuild failed', error);
+      }
+    }, LIVE_METRICS_REFRESH_MS);
+  };
+
   Hooks.on('createChatMessage', (message) => {
     try {
       recordLiveObservation(message);
     } catch (error) {
       console.warn('[RollCodex] Live observation failed', error);
     }
+  });
+
+  Hooks.on('updateChatMessage', () => {
+    scheduleSessionRebuild();
   });
 }
 
@@ -3767,6 +3802,7 @@ Hooks.once('ready', async () => {
   renderFloatingPanel();
 
   globalThis.refreshLivePanels = refreshLivePanels;
+  globalThis.refreshRollCodexFloatingPanel = renderFloatingPanel;
   globalThis.getCachedMappingProfile = getCachedMappingProfile;
   globalThis.resolveMessageActor = resolveMessageActor;
   globalThis.extractRollFigures = extractRollFigures;

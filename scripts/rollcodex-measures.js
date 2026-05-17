@@ -713,12 +713,23 @@
   }
 
   let throttleRefreshTimer = null;
+  let throttleRebuildTimer = null;
 
   function throttledRefreshLivePanels() {
     if (throttleRefreshTimer) return;
     throttleRefreshTimer = setTimeout(() => {
       if (globalThis.refreshLivePanels) globalThis.refreshLivePanels();
       throttleRefreshTimer = null;
+    }, 250);
+  }
+
+  function throttledRebuildFromHistory() {
+    if (throttleRebuildTimer) return;
+    throttleRebuildTimer = setTimeout(() => {
+      throttleRebuildTimer = null;
+      const messages = globalThis.getRollCodexLiveBackfillMessages?.()
+        || Array.from(game.messages?.contents || []);
+      rebuildFromMessages(messages);
     }, 250);
   }
 
@@ -1002,6 +1013,14 @@
         processMessageForMeasures(message);
       } catch (error) {
         console.warn('[RollCodex Measures] Processing failed', error);
+      }
+    });
+
+    Hooks.on('updateChatMessage', () => {
+      try {
+        throttledRebuildFromHistory();
+      } catch (error) {
+        console.warn('[RollCodex Measures] Rebuild on update failed', error);
       }
     });
 
