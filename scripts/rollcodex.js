@@ -1,7 +1,7 @@
 /* global Dialog, FormApplication, Hooks, foundry, game, ui */
 
 const MODULE_ID = 'rollcodex';
-const MODULE_VERSION = '0.1.37';
+const MODULE_VERSION = '0.1.39';
 const DEFAULT_ROLLCODEX_APP_URL = 'http://localhost:5173';
 const MESSAGE_HANDSHAKE_TYPE = 'rollcodex:vtt-pairing-handshake';
 const MESSAGE_HANDSHAKE_RESPONSE_TYPE = 'rollcodex:vtt-pairing-handshake-response';
@@ -684,6 +684,13 @@ function readBetterRollsFigures(message) {
 function inferActionType({ message, item, rawText, rolls }) {
   const configured = normalizeItemActionType(readDocumentFlag(item, FLAGS.itemActionType));
   if (configured && configured !== 'auto') return configured;
+
+  const hasD20Roll = Array.isArray(rolls) && rolls.some((roll) => isD20Roll(roll));
+  const hasDamageRoll = Array.isArray(rolls) && rolls.some((roll) => isDamageRoll(roll));
+  if (hasDamageRoll && !hasD20Roll) {
+    const messageType = getMessageRollType(message);
+    return messageType === 'healing' ? 'healing' : 'damage';
+  }
 
   const rollType = getMessageRollType(message);
   const activityType = getMessageActivityType(message);

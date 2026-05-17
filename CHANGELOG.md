@@ -1,3 +1,28 @@
+## 0.1.39 (2026-05-18)
+
+- Fix: le GM n apparaissait pas dans le classement quand il jouait des
+  PNJ/monstres, parce que les mesures `target_role='players_only'`
+  excluaient TOUS les events avec `route_to_gm=true` (y compris les
+  actions de PNJ controles par le GM). Le filtre `players_only` inclut
+  maintenant les actions de tout acteur (PJ ou PNJ) et n exclut que les
+  rolls "purs" GM (chat `/roll` sans acteur, `actor_kind='unknown'`).
+  Aligne sur le besoin metier "actions a la table", pas "exclure le GM".
+
+## 0.1.38 (2026-05-18)
+
+- Fix: les messages de degats en D&D5e v3+/v4+ etaient classes en
+  `event_type='attack'` au lieu de `'damage'` car `flags.dnd5e.roll.type`
+  ou `flags.dnd5e.activity.type` pouvait pointer sur l Attack activity
+  parente. `inferActionType` verifie maintenant en priorite si les rolls
+  contiennent un DamageRoll (constructor / damage types) sans d20, et
+  force `damage` dans ce cas. Sinon les mesures filtrees sur
+  `filter_event_type:['damage']` rejetaient silencieusement tous les
+  messages de degats.
+- Debug logging: passer `globalThis.RollCodexDebug = true` dans la
+  console Foundry pour voir, pour chaque message traite, le type
+  d evenement, le bucket, et la liste des mesures matchees vs rejetees
+  avec la raison (filter / no_field_value).
+
 ## 0.1.36 (2026-05-18)
 
 - Fix critique: `extractRollFigures` ne forward qu un sous-ensemble des

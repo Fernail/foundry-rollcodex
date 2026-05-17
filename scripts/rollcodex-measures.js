@@ -333,7 +333,13 @@
     const targetRole = normalizeString(metric?.target_role || metric?.targetRole || 'all').toLowerCase() || 'all';
     if (targetRole === 'all') return true;
     if (targetRole === 'gm_only') return event.route_to_gm === true;
-    if (targetRole === 'players_only') return event.route_to_gm !== true;
+    if (targetRole === 'players_only') {
+      // Inclut les jets de PJ ET les actions du GM via un PNJ/monstre (mappes
+      // sur le bucket GM mais materialises par un acteur a la table). Exclut
+      // uniquement les rolls "purs" GM (chat /roll sans acteur).
+      const actorKind = normalizeString(event.actor_kind).toLowerCase();
+      return actorKind !== '' && actorKind !== 'unknown';
+    }
     if (targetRole === 'npcs_only') return event.actor_kind && event.actor_kind !== 'pc';
     return true;
   }
@@ -728,11 +734,39 @@
     measuresState.liveEventIds.add(event.message_id);
     measuresState.liveEvents.push(event);
 
+    const debug = globalThis.RollCodexDebug === true;
+    const matched = [];
+    const rejected = [];
+
     for (const measure of measures) {
       const scratch = { count: 0, sum: 0, numerator: 0, denominator: 0, messages: 0 };
-      if (messageMatchesMetricFilter(event, measure) && addMetricContribution(scratch, measure, event)) {
-        recordMeasureMatch(event.message_id, measure.id);
+      const filterOk = messageMatchesMetricFilter(event, measure);
+      if (!filterOk) {
+        if (debug) rejected.push({ id: measure.id, name: measure.name, reason: 'filter' });
+        continue;
       }
+      const contributed = addMetricContribution(scratch, measure, event);
+      if (!contributed) {
+        if (debug) rejected.push({ id: measure.id, name: measure.name, reason: 'no_field_value' });
+        continue;
+      }
+      recordMeasureMatch(event.message_id, measure.id);
+      if (debug) matched.push({ id: measure.id, name: measure.name, scratch });
+    }
+
+    if (debug) {
+      console.debug('[RollCodex Measures] processed', {
+        message_id: event.message_id,
+        event_type: event.event_type,
+        actor_kind: event.actor_kind,
+        participant: event.participant_label,
+        roll_total: event.roll_total,
+        damage_total: event.damage_total,
+        heal_total: event.heal_total,
+        route_to_gm: event.route_to_gm,
+        matched,
+        rejected,
+      });
     }
 
     throttledRefreshLivePanels();
