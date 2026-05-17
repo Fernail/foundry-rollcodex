@@ -779,12 +779,7 @@ function inferRollTotalFromText(rawText) {
   const totalMatch = text.match(/\b(?:total|result|resultat|jet|roll)\D{0,24}(\d{1,3})\b/);
   const total = readSafeNumber(totalMatch?.[1]);
   if (total !== null) return total;
-
-  const d20Index = text.search(/\b1?\s*d20\b/);
-  if (d20Index < 0) return null;
-  const segment = text.slice(d20Index, d20Index + 96);
-  const numbers = collectStandaloneNumbers(segment).filter((number) => number >= 0 && number <= 100);
-  return numbers.length ? numbers[numbers.length - 1] : null;
+  return null;
 }
 
 function getMessageFigures({ message, rawText, item, rolls }) {
@@ -804,9 +799,10 @@ function getMessageFigures({ message, rawText, item, rolls }) {
 
   const textRollTotal = rollGroups.d20.length || betterRollsFigures?.rollCount ? null : inferRollTotalFromText(rawText);
   const rollCount = rollGroups.d20.length || betterRollsFigures?.rollCount || (textRollTotal !== null ? 1 : 0);
-  const rollTotal = rollGroups.d20.length
+  const rollTotalValue = rollGroups.d20.length
     ? sumRollTotals(rollGroups.d20)
-    : (betterRollsFigures?.rollTotal || textRollTotal || 0);
+    : (betterRollsFigures?.rollTotal ?? textRollTotal ?? null);
+  const rollTotal = rollCount > 0 ? rollTotalValue : null;
   const actionType = inferActionType({ message, item, rawText, rolls });
   const textDamage = inferAmountFromText(rawText, 'damage');
   const textHealing = inferAmountFromText(rawText, 'healing');

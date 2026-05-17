@@ -639,10 +639,17 @@
 
   function normalizeFoundryEventType(rollFigures) {
     const actionType = normalizeString(rollFigures?.actionType).toLowerCase();
-    if (actionType && actionType !== 'auto' && actionType !== 'other') return actionType;
-    if (rollFigures?.damageHint) return 'damage';
-    if (rollFigures?.healHint) return 'healing';
-    if (rollFigures?.count) return 'roll';
+    const hasRoll = Number(rollFigures?.count || 0) > 0;
+    const hasDamage = Number(rollFigures?.damageHint || 0) > 0;
+    const hasHealing = Number(rollFigures?.healHint || 0) > 0;
+
+    if (hasDamage) return 'damage';
+    if (hasHealing) return 'healing';
+    if (hasRoll) return 'roll';
+
+    // Les cartes d'action pre-lancer (ex: attaque affichee avant clic) ne
+    // doivent pas etre interpretees comme un evenement de mesure.
+    if (actionType && actionType !== 'auto' && actionType !== 'other') return 'message';
     return 'message';
   }
 
