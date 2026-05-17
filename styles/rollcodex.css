@@ -852,34 +852,6 @@
   cursor: grab;
 }
 
-.rollcodex-floating-panel__metrics {
-  display: grid;
-  gap: 4px;
-  grid-template-columns: repeat(4, minmax(56px, 1fr));
-  grid-column: 1 / 2;
-}
-
-.rollcodex-floating-panel__metrics span {
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 6px;
-  display: grid;
-  gap: 0;
-  min-width: 0;
-  padding: 4px 5px;
-}
-
-.rollcodex-floating-panel__metrics strong {
-  font-size: 14px;
-  line-height: 1;
-}
-
-.rollcodex-floating-panel__metrics span {
-  color: #d6c6ad;
-  font-size: 10px;
-  letter-spacing: 0.02em;
-}
-
 .rollcodex-floating-panel__status,
 .rollcodex-floating-panel__meta {
   grid-column: 1 / 2;

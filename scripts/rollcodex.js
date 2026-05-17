@@ -1764,12 +1764,6 @@ function renderFloatingPanel() {
       <span class="rollcodex-floating-panel__status-badge" title="${escapeHtml(status)}">${escapeHtml(statusLabel)}</span>
       <button type="button" class="rollcodex-floating-panel__action" data-rollcodex-floating-collapse title="Reduire">-</button>
     </header>
-    <div class="rollcodex-floating-panel__metrics">
-      <span><strong>${escapeHtml(liveMetrics.totals.messages)}</strong> msg</span>
-      <span><strong>${escapeHtml(liveMetrics.totals.rolls)}</strong> jets</span>
-      <span><strong>${escapeHtml(liveMetrics.totals.damage)}</strong> degats</span>
-      <span><strong>${escapeHtml(liveMetrics.totals.healing)}</strong> soins</span>
-    </div>
     <section class="rollcodex-floating-panel__ranking">
       ${rankingHtml}
     </section>
