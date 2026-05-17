@@ -65,6 +65,10 @@ const SETTINGS = {
   workspaceLabel: 'workspaceLabel',
   systemId: 'systemId',
   systemLabel: 'systemLabel',
+  campaignId: 'campaignId',
+  campaignLabel: 'campaignLabel',
+  tableId: 'tableId',
+  tableLabel: 'tableLabel',
   connectedAt: 'connectedAt',
   pendingConnectionId: 'pendingConnectionId',
   pendingConnectionSecret: 'pendingConnectionSecret',
@@ -1120,6 +1124,10 @@ function getStoredConnection() {
     workspaceLabel: game.settings.get(MODULE_ID, SETTINGS.workspaceLabel),
     systemId: game.settings.get(MODULE_ID, SETTINGS.systemId),
     systemLabel: game.settings.get(MODULE_ID, SETTINGS.systemLabel),
+    campaignId: game.settings.get(MODULE_ID, SETTINGS.campaignId),
+    campaignLabel: game.settings.get(MODULE_ID, SETTINGS.campaignLabel),
+    tableId: game.settings.get(MODULE_ID, SETTINGS.tableId),
+    tableLabel: game.settings.get(MODULE_ID, SETTINGS.tableLabel),
     connectedAt: game.settings.get(MODULE_ID, SETTINGS.connectedAt),
   };
 }
@@ -1489,6 +1497,10 @@ async function forgetFloatingConnection() {
     game.settings.set(MODULE_ID, SETTINGS.workspaceLabel, ''),
     game.settings.set(MODULE_ID, SETTINGS.systemId, ''),
     game.settings.set(MODULE_ID, SETTINGS.systemLabel, ''),
+    game.settings.set(MODULE_ID, SETTINGS.campaignId, ''),
+    game.settings.set(MODULE_ID, SETTINGS.campaignLabel, ''),
+    game.settings.set(MODULE_ID, SETTINGS.tableId, ''),
+    game.settings.set(MODULE_ID, SETTINGS.tableLabel, ''),
     game.settings.set(MODULE_ID, SETTINGS.connectedAt, ''),
     game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastSentAt, ''),
     game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastError, ''),
@@ -1638,8 +1650,9 @@ function renderFloatingPanel() {
   const rankingHtml = renderFloatingRankingHtml(rankingSummary);
   const autoSettings = getAutoSnapshotSettings();
   const topParticipant = rankingSummary.topLabel || 'Table Foundry';
+  const connectedScopeLabel = connection.tableLabel || connection.campaignLabel || connection.systemLabel || 'Systeme';
   const target = connected
-    ? `${connection.workspaceLabel || 'Registre'} / ${connection.systemLabel || 'Systeme'}`
+    ? `${connection.workspaceLabel || 'Registre'} / ${connectedScopeLabel}`
     : 'Monde non connecte';
   const status = floatingPanelState.status || (connected ? 'Connecte a RollCodex.' : 'Pret pour connexion.');
   const statusLabel = compactFloatingStatus(status, connected);
@@ -2130,14 +2143,28 @@ function parseConfirmationPayload(rawValue) {
 }
 
 async function saveConnectionFromMessage(data, connectionSecret) {
+  const endpoint = normalizeString(data.endpoint || data.snapshotEndpoint || data.snapshot_endpoint);
+  const mappingProfileEndpoint = normalizeString(data.mappingProfileEndpoint || data.mapping_profile_endpoint);
+  const workspaceLabel = normalizeString(data.workspaceLabel || data.workspace_label);
+  const systemId = normalizeString(data.systemId || data.system_id);
+  const systemLabel = normalizeString(data.systemLabel || data.system_label);
+  const campaignId = normalizeString(data.campaignId || data.campaign_id);
+  const campaignLabel = normalizeString(data.campaignLabel || data.campaign_label);
+  const tableId = normalizeString(data.tableId || data.table_id);
+  const tableLabel = normalizeString(data.tableLabel || data.table_label);
+
   await game.settings.set(MODULE_ID, SETTINGS.connectionId, data.connectionId || '');
   await game.settings.set(MODULE_ID, SETTINGS.localConnectionSecret, connectionSecret || '');
   await game.settings.set(MODULE_ID, SETTINGS.connectionSecret, '');
-  await game.settings.set(MODULE_ID, SETTINGS.endpoint, data.endpoint || '');
-  await game.settings.set(MODULE_ID, SETTINGS.mappingProfileEndpoint, data.mappingProfileEndpoint || '');
-  await game.settings.set(MODULE_ID, SETTINGS.workspaceLabel, data.workspaceLabel || '');
-  await game.settings.set(MODULE_ID, SETTINGS.systemId, data.systemId || '');
-  await game.settings.set(MODULE_ID, SETTINGS.systemLabel, data.systemLabel || '');
+  await game.settings.set(MODULE_ID, SETTINGS.endpoint, endpoint);
+  await game.settings.set(MODULE_ID, SETTINGS.mappingProfileEndpoint, mappingProfileEndpoint);
+  await game.settings.set(MODULE_ID, SETTINGS.workspaceLabel, workspaceLabel);
+  await game.settings.set(MODULE_ID, SETTINGS.systemId, systemId);
+  await game.settings.set(MODULE_ID, SETTINGS.systemLabel, systemLabel);
+  await game.settings.set(MODULE_ID, SETTINGS.campaignId, campaignId);
+  await game.settings.set(MODULE_ID, SETTINGS.campaignLabel, campaignLabel);
+  await game.settings.set(MODULE_ID, SETTINGS.tableId, tableId);
+  await game.settings.set(MODULE_ID, SETTINGS.tableLabel, tableLabel);
   await game.settings.set(MODULE_ID, SETTINGS.connectedAt, new Date().toISOString());
 }
 
@@ -3089,6 +3116,10 @@ class RollCodexConnectionApp extends FormApplication {
       game.settings.set(MODULE_ID, SETTINGS.workspaceLabel, ''),
       game.settings.set(MODULE_ID, SETTINGS.systemId, ''),
       game.settings.set(MODULE_ID, SETTINGS.systemLabel, ''),
+      game.settings.set(MODULE_ID, SETTINGS.campaignId, ''),
+      game.settings.set(MODULE_ID, SETTINGS.campaignLabel, ''),
+      game.settings.set(MODULE_ID, SETTINGS.tableId, ''),
+      game.settings.set(MODULE_ID, SETTINGS.tableLabel, ''),
       game.settings.set(MODULE_ID, SETTINGS.connectedAt, ''),
       game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastSentAt, ''),
       game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastError, ''),

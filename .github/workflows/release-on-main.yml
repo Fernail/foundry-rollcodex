@@ -1,0 +1,63 @@
+name: Release Foundry Module
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  bump-and-release:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Prepare next release version
+        id: prepare
+        run: |
+          RELEASE_JSON=$(node .github/scripts/prepare-release.mjs)
+          echo "release_json=$RELEASE_JSON" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p \"JSON.parse(process.argv[1]).version\" \"$RELEASE_JSON\")" >> "$GITHUB_OUTPUT"
+          echo "tag=$(node -p \"JSON.parse(process.argv[1]).tag\" \"$RELEASE_JSON\")" >> "$GITHUB_OUTPUT"
+          echo "zip_name=$(node -p \"JSON.parse(process.argv[1]).zipName\" \"$RELEASE_JSON\")" >> "$GITHUB_OUTPUT"
+
+      - name: Commit bumped version
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add module.json scripts/rollcodex.js scripts/rollcodex-measures.js
+          git commit -m "chore: release ${{ steps.prepare.outputs.tag }} [skip ci]"
+
+      - name: Create git tag
+        run: git tag "${{ steps.prepare.outputs.tag }}"
+
+      - name: Push commit and tag
+        run: git push origin main --follow-tags
+
+      - name: Build release archive
+        run: |
+          zip -r "${{ steps.prepare.outputs.zip_name }}" module.json README.md CHANGELOG.md lang styles scripts templates
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.prepare.outputs.tag }}
+          name: Release ${{ steps.prepare.outputs.tag }}
+          body: |
+            Release automatique ${{ steps.prepare.outputs.tag }}.
+          files: |
+            ${{ steps.prepare.outputs.zip_name }}
+            module.json
