@@ -1,7 +1,7 @@
 /* global Dialog, FormApplication, Hooks, foundry, game, ui */
 
 const MODULE_ID = 'rollcodex';
-const MODULE_VERSION = '0.1.28';
+const MODULE_VERSION = '0.1.29';
 const DEFAULT_ROLLCODEX_APP_URL = 'http://localhost:5173';
 const MESSAGE_HANDSHAKE_TYPE = 'rollcodex:vtt-pairing-handshake';
 const MESSAGE_HANDSHAKE_RESPONSE_TYPE = 'rollcodex:vtt-pairing-handshake-response';
