@@ -728,18 +728,20 @@
   color: #f7efe1;
   display: grid;
   font: 12px/1.35 Arial, sans-serif;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
   gap: 8px;
-  max-height: min(62vh, 420px);
+  max-height: min(56vh, 360px);
   max-width: calc(100vw - 24px);
   overflow: auto;
   padding: 10px;
   position: fixed;
-  width: 312px;
+  width: 468px;
   z-index: 99999;
 }
 
 .rollcodex-floating-panel.is-collapsed {
-  width: 226px;
+  grid-template-columns: 1fr;
+  width: 248px;
 }
 
 .rollcodex-floating-panel__header,
@@ -747,6 +749,10 @@
   align-items: center;
   display: flex;
   gap: 8px;
+}
+
+.rollcodex-floating-panel__header {
+  grid-column: 1 / -1;
 }
 
 .rollcodex-floating-panel__status-badge {
@@ -806,6 +812,7 @@
   display: grid;
   gap: 6px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-column: 1 / 2;
 }
 
 .rollcodex-floating-panel__metrics span {
@@ -823,6 +830,7 @@
 
 .rollcodex-floating-panel__status,
 .rollcodex-floating-panel__meta {
+  grid-column: 1 / 2;
   margin: 0;
 }
 
@@ -836,6 +844,8 @@
   border-radius: 6px;
   display: grid;
   gap: 6px;
+  grid-column: 2 / 3;
+  grid-row: 2 / span 5;
   padding: 7px;
 }
 
@@ -863,13 +873,18 @@
 }
 
 .rollcodex-floating-panel__ranking-select {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(31, 24, 19, 0.96);
+  border: 1px solid rgba(231, 201, 154, 0.34);
   border-radius: 5px;
   color: #f7efe1;
   font-size: 11px;
   min-height: 24px;
   padding: 2px 6px;
+}
+
+.rollcodex-floating-panel__ranking-select option {
+  background: #1f1813;
+  color: #f7efe1;
 }
 
 .rollcodex-floating-panel__ranking-list {
@@ -920,6 +935,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  grid-column: 1 / 2;
 }
 
 .rollcodex-floating-panel__auto {
@@ -928,6 +944,7 @@
   display: flex;
   font-size: 11px;
   gap: 6px;
+  grid-column: 1 / 2;
 }
 
 .rollcodex-floating-panel__auto button {
@@ -964,6 +981,23 @@
 }
 
 @media (max-width: 680px) {
+  .rollcodex-floating-panel {
+    grid-template-columns: 1fr;
+    max-height: min(62vh, 420px);
+    width: min(96vw, 332px);
+  }
+
+  .rollcodex-floating-panel__header,
+  .rollcodex-floating-panel__metrics,
+  .rollcodex-floating-panel__status,
+  .rollcodex-floating-panel__meta,
+  .rollcodex-floating-panel__ranking,
+  .rollcodex-floating-panel__buttons,
+  .rollcodex-floating-panel__auto {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
   .rollcodex-connection {
     min-width: 0;
   }
