@@ -1630,18 +1630,27 @@ function getFloatingRankingSummary(liveMetrics) {
   const selectedRanking = Array.isArray(selectedMeasureData.ranking) ? selectedMeasureData.ranking : [];
   const availableMeasures = globalThis.RollCodexMeasures?.getActiveMeasures?.() || [];
   const selectedMeasureId = globalThis.RollCodexMeasures?.selectedMeasureId || '';
+  const metricResult = selectedMeasureData.metricResult || selectedMeasureData.metric_result || null;
 
   if (selectedMeasure && selectedRanking.length > 0) {
     return {
-      title: selectedMeasure.icon
-        ? `${selectedMeasure.icon} ${selectedMeasure.name}`
-        : selectedMeasure.name,
+      hasMeasure: true,
+      measureName: selectedMeasure.name || selectedMeasure.id,
+      measureIcon: selectedMeasure.icon || '',
+      measureColor: selectedMeasure.color || '',
+      globalValue: metricResult?.label || '',
+      globalDelta: metricResult?.delta_label || metricResult?.deltaLabel || '',
+      globalDeltaPositive: Number(metricResult?.delta_value || 0) > 0,
+      globalDeltaNegative: Number(metricResult?.delta_value || 0) < 0,
       selectedMeasureId,
       availableMeasures,
       rows: selectedRanking.slice(0, 6).map((entry, index) => ({
         rank: index + 1,
         label: entry.participant_label || 'Non resolu',
-        value: entry.valueLabel || formatMetricNumber(entry.value),
+        value: entry.valueLabel || entry.value_label || formatMetricNumber(entry.value),
+        delta: entry.deltaLabel || entry.delta_label || '',
+        deltaPositive: Number(entry.delta_value || 0) > 0,
+        deltaNegative: Number(entry.delta_value || 0) < 0,
         unresolved: !entry.resolved,
       })),
       topLabel: selectedRanking[0]?.participant_label || 'Table Foundry',
@@ -1652,12 +1661,22 @@ function getFloatingRankingSummary(liveMetrics) {
   const rows = participants.slice(0, 6).map((participant, index) => ({
     rank: index + 1,
     label: participant.speaker || 'Inconnu',
-    value: `${participant.rollsLabel} jets`,
+    value: participant.rollsLabel || '0',
+    delta: '',
+    deltaPositive: false,
+    deltaNegative: false,
     unresolved: false,
   }));
 
   return {
-    title: 'Top participants',
+    hasMeasure: false,
+    measureName: 'Top participants',
+    measureIcon: '',
+    measureColor: '',
+    globalValue: '',
+    globalDelta: '',
+    globalDeltaPositive: false,
+    globalDeltaNegative: false,
     selectedMeasureId,
     availableMeasures,
     rows,
@@ -1665,45 +1684,72 @@ function getFloatingRankingSummary(liveMetrics) {
   };
 }
 
-function renderFloatingRankingHtml(rankingSummary) {
+function renderFloatingMeasureHtml(rankingSummary) {
   const hasMeasures = Array.isArray(rankingSummary.availableMeasures) && rankingSummary.availableMeasures.length > 0;
-  const options = hasMeasures
-    ? rankingSummary.availableMeasures.map((measure) => {
-      const selected = measure.id === rankingSummary.selectedMeasureId ? 'selected' : '';
-      return `<option value="${escapeHtml(measure.id)}" ${selected}>${escapeHtml(measure.name || measure.id)}</option>`;
-    }).join('')
+  if (!hasMeasures) {
+    return '';
+  }
+
+  const options = rankingSummary.availableMeasures.map((measure) => {
+    const selected = measure.id === rankingSummary.selectedMeasureId ? 'selected' : '';
+    const optionLabel = measure.icon ? `${measure.icon} ${measure.name || measure.id}` : (measure.name || measure.id);
+    return `<option value="${escapeHtml(measure.id)}" ${selected}>${escapeHtml(optionLabel)}</option>`;
+  }).join('');
+
+  const deltaClass = rankingSummary.globalDeltaPositive
+    ? 'is-positive'
+    : rankingSummary.globalDeltaNegative
+      ? 'is-negative'
+      : '';
+  const deltaHtml = rankingSummary.globalDelta
+    ? `<span class="rollcodex-floating-panel__measure-delta ${deltaClass}">${escapeHtml(rankingSummary.globalDelta)}</span>`
     : '';
-  const selectHtml = hasMeasures
+  const globalHtml = rankingSummary.globalValue
     ? `
-      <label class="rollcodex-floating-panel__ranking-select-wrap">
-        <span>Mesure</span>
-        <select data-rollcodex-floating-measure class="rollcodex-floating-panel__ranking-select">${options}</select>
-      </label>
+      <div class="rollcodex-floating-panel__measure-global">
+        <span class="rollcodex-floating-panel__measure-global-label">Global</span>
+        <strong class="rollcodex-floating-panel__measure-global-value">${escapeHtml(rankingSummary.globalValue)}</strong>
+        ${deltaHtml}
+      </div>
     `
     : '';
 
+  return `
+    <div class="rollcodex-floating-panel__measure">
+      <label class="rollcodex-floating-panel__measure-select-wrap">
+        <span>Mesure</span>
+        <select data-rollcodex-floating-measure class="rollcodex-floating-panel__measure-select">${options}</select>
+      </label>
+      ${globalHtml}
+    </div>
+  `;
+}
+
+function renderFloatingRankingHtml(rankingSummary) {
   if (!rankingSummary.rows.length) {
-    return `
-      ${selectHtml}
-      <div class="rollcodex-floating-panel__ranking-empty">Aucun classement live pour le moment.</div>
-    `;
+    return `<div class="rollcodex-floating-panel__ranking-empty">Aucun classement live pour le moment.</div>`;
   }
 
   const rows = rankingSummary.rows.map((entry) => {
+    const deltaClass = entry.deltaPositive
+      ? 'is-positive'
+      : entry.deltaNegative
+        ? 'is-negative'
+        : '';
+    const deltaHtml = entry.delta
+      ? `<span class="rollcodex-floating-panel__ranking-delta ${deltaClass}">${escapeHtml(entry.delta)}</span>`
+      : '';
     return `
       <li class="${entry.unresolved ? 'is-unresolved' : ''}">
         <span class="rollcodex-floating-panel__ranking-rank">${entry.rank}</span>
         <span class="rollcodex-floating-panel__ranking-label" title="${escapeHtml(entry.label)}">${escapeHtml(entry.label)}</span>
         <span class="rollcodex-floating-panel__ranking-value">${escapeHtml(entry.value)}</span>
+        ${deltaHtml}
       </li>
     `;
   }).join('');
 
-  return `
-    ${selectHtml}
-    <div class="rollcodex-floating-panel__ranking-head">${escapeHtml(rankingSummary.title)}</div>
-    <ol class="rollcodex-floating-panel__ranking-list">${rows}</ol>
-  `;
+  return `<ol class="rollcodex-floating-panel__ranking-list">${rows}</ol>`;
 }
 
 function renderFloatingPanel() {
@@ -1722,15 +1768,28 @@ function renderFloatingPanel() {
   const canSend = canCurrentUserSendSnapshots();
   const liveMetrics = summarizeLiveMetricsForTemplate();
   const rankingSummary = getFloatingRankingSummary(liveMetrics);
+  const measureHtml = renderFloatingMeasureHtml(rankingSummary);
   const rankingHtml = renderFloatingRankingHtml(rankingSummary);
   const autoSettings = getAutoSnapshotSettings();
-  const topParticipant = rankingSummary.topLabel || 'Table Foundry';
   const connectedScopeLabel = connection.tableLabel || connection.campaignLabel || connection.systemLabel || 'Systeme';
-  const target = connected
-    ? `${connection.workspaceLabel || 'Registre'} / ${connectedScopeLabel}`
+  const workspaceLabel = connection.workspaceLabel || 'Registre';
+  const scopeLine = connected
+    ? `${workspaceLabel} / ${connectedScopeLabel}`
     : 'Monde non connecte';
   const status = floatingPanelState.status || (connected ? 'Connecte a RollCodex.' : 'Pret pour connexion.');
   const statusLabel = compactFloatingStatus(status, connected);
+  const statusBadgeClass = connected ? 'is-online' : 'is-offline';
+  const totals = liveMetrics?.totals || {};
+  const statsHtml = connected
+    ? `
+      <div class="rollcodex-floating-panel__stats">
+        <span><strong>${escapeHtml(totals.messages || '0')}</strong> msg</span>
+        <span><strong>${escapeHtml(totals.rolls || '0')}</strong> jets</span>
+        <span><strong>${escapeHtml(totals.damage || '0')}</strong> dmg</span>
+        <span><strong>${escapeHtml(totals.criticals || '0')}</strong> crit</span>
+      </div>
+    `
+    : '';
 
   panel.className = `rollcodex-floating-panel ${settings.collapsed ? 'is-collapsed' : ''} ${connected ? 'is-connected' : 'is-idle'}`;
   panel.style.left = `${Math.max(8, settings.left)}px`;
@@ -1741,14 +1800,12 @@ function renderFloatingPanel() {
       <div class="rollcodex-floating-panel__compact">
         <button type="button" class="rollcodex-floating-panel__drag" data-rollcodex-floating-drag title="Deplacer"><i class="fas fa-grip-lines"></i></button>
         <div class="rollcodex-floating-panel__compact-body">
-          <strong>Classement live</strong>
-          <span>${escapeHtml(target)}</span>
+          <strong>RollCodex</strong>
+          <span>${escapeHtml(scopeLine)}</span>
         </div>
-        <button type="button" class="rollcodex-floating-panel__action" data-rollcodex-floating-collapse title="Ouvrir">Ouvrir</button>
+        <span class="rollcodex-floating-panel__status-badge ${statusBadgeClass}" title="${escapeHtml(status)}">${escapeHtml(statusLabel)}</span>
+        <button type="button" class="rollcodex-floating-panel__action" data-rollcodex-floating-collapse title="Ouvrir">+</button>
       </div>
-      <section class="rollcodex-floating-panel__compact-ranking">
-        ${rankingHtml}
-      </section>
     `;
     bindFloatingPanelEvents(panel);
     return;
@@ -1759,27 +1816,29 @@ function renderFloatingPanel() {
       <button type="button" class="rollcodex-floating-panel__drag" data-rollcodex-floating-drag title="Deplacer"><i class="fas fa-grip-lines"></i></button>
       <div class="rollcodex-floating-panel__title">
         <strong>RollCodex Live</strong>
-        <span>${escapeHtml(target)}</span>
+        <span>${escapeHtml(scopeLine)}</span>
       </div>
-      <span class="rollcodex-floating-panel__status-badge" title="${escapeHtml(status)}">${escapeHtml(statusLabel)}</span>
+      <span class="rollcodex-floating-panel__status-badge ${statusBadgeClass}" title="${escapeHtml(status)}">${escapeHtml(statusLabel)}</span>
       <button type="button" class="rollcodex-floating-panel__action" data-rollcodex-floating-collapse title="Reduire">-</button>
     </header>
-    <section class="rollcodex-floating-panel__ranking">
-      ${rankingHtml}
-    </section>
+    ${statsHtml}
     <div class="rollcodex-floating-panel__buttons">
       <button type="button" data-rollcodex-floating-config>${connected ? 'Cfg' : 'Lier'}</button>
       <button type="button" data-rollcodex-floating-live>Journal</button>
       <button type="button" data-rollcodex-floating-send ${canSend && connected ? '' : 'disabled'}>Env.</button>
+      <button type="button" data-rollcodex-floating-auto ${canSend && connected ? '' : 'disabled'}>Auto ${autoSettings.enabled ? 'ON' : 'OFF'}</button>
       <button type="button" data-rollcodex-floating-end ${canSend && connected ? '' : 'disabled'}>Fin</button>
       <button type="button" data-rollcodex-floating-forget ${connected ? '' : 'disabled'}>Oub.</button>
-      <button type="button" data-rollcodex-floating-auto ${canSend && connected ? '' : 'disabled'}>Auto ${autoSettings.enabled ? 'ON' : 'OFF'}</button>
     </div>
     <div class="rollcodex-floating-panel__auto">
       <button type="button" data-rollcodex-floating-auto-minus ${canSend && connected ? '' : 'disabled'} title="Reduire l intervalle auto">-</button>
       <span>Auto ${autoSettings.idleMinutes} min</span>
       <button type="button" data-rollcodex-floating-auto-plus ${canSend && connected ? '' : 'disabled'} title="Augmenter l intervalle auto">+</button>
     </div>
+    ${measureHtml}
+    <section class="rollcodex-floating-panel__ranking">
+      ${rankingHtml}
+    </section>
   `;
   bindFloatingPanelEvents(panel);
 }
