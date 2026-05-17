@@ -2,7 +2,8 @@
   <header class="rollcodex-live__header">
     <div>
       <p class="rollcodex-connection__eyebrow">RollCodex</p>
-      <h2>Classement live</h2>
+      <h2>Journal live</h2>
+      <p class="rollcodex-live__subtitle">Classement actif et fil des evenements observes</p>
     </div>
     <label class="rollcodex-toggle">
       <input type="checkbox" name="liveMetricsEnabled" {{#if enabled}}checked{{/if}} />
@@ -78,7 +79,7 @@
 
   <section class="rollcodex-live__section">
     <div class="rollcodex-live__section-header">
-      <h3>Derniers evenements</h3>
+      <h3>Fil des evenements</h3>
     </div>
     {{#if hasRecentEvents}}
       <div class="rollcodex-live__events">

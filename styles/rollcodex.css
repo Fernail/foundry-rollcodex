@@ -414,6 +414,10 @@
   gap: 14px;
 }
 
+.rollcodex-live {
+  min-width: 700px;
+}
+
 .rollcodex-live-panel__header,
 .rollcodex-live__header,
 .rollcodex-mapping__header,
@@ -445,6 +449,12 @@
 .rollcodex-mapping__header h2,
 .rollcodex-live__section-header h3 {
   margin: 0;
+}
+
+.rollcodex-live__subtitle {
+  color: var(--rcx-text-muted);
+  font-size: 12px;
+  margin: 2px 0 0;
 }
 
 .rollcodex-live__section-header span {
@@ -536,7 +546,7 @@
 }
 
 .rollcodex-live__totals {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(72px, 1fr));
 }
 
 .rollcodex-live-panel__metrics {
@@ -735,14 +745,14 @@
   color: #f7efe1;
   display: grid;
   font: 12px/1.35 Arial, sans-serif;
-  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
-  gap: 8px;
-  max-height: min(56vh, 360px);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 7px;
+  max-height: min(52vh, 326px);
   max-width: calc(100vw - 24px);
   overflow: auto;
-  padding: 10px;
+  padding: 8px;
   position: fixed;
-  width: 468px;
+  width: 556px;
   z-index: 99999;
 }
 
@@ -844,8 +854,8 @@
 
 .rollcodex-floating-panel__metrics {
   display: grid;
-  gap: 6px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  grid-template-columns: repeat(4, minmax(56px, 1fr));
   grid-column: 1 / 2;
 }
 
@@ -854,12 +864,20 @@
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 6px;
   display: grid;
+  gap: 0;
   min-width: 0;
-  padding: 6px;
+  padding: 4px 5px;
 }
 
 .rollcodex-floating-panel__metrics strong {
-  font-size: 15px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.rollcodex-floating-panel__metrics span {
+  color: #d6c6ad;
+  font-size: 10px;
+  letter-spacing: 0.02em;
 }
 
 .rollcodex-floating-panel__status,
@@ -877,10 +895,10 @@
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 6px;
   display: grid;
-  gap: 6px;
+  gap: 5px;
   grid-column: 2 / 3;
   grid-row: 2 / span 5;
-  padding: 7px;
+  padding: 6px;
 }
 
 .rollcodex-floating-panel__ranking-head {

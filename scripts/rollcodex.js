@@ -1777,7 +1777,7 @@ function renderFloatingPanel() {
     <p class="rollcodex-floating-panel__meta">Actif : ${escapeHtml(topParticipant)} · Auto ${autoSettings.enabled ? 'ON' : 'OFF'} · ${autoSettings.idleMinutes} min</p>
     <div class="rollcodex-floating-panel__buttons">
       <button type="button" data-rollcodex-floating-config>${connected ? 'Cfg' : 'Lier'}</button>
-      <button type="button" data-rollcodex-floating-live>Live</button>
+      <button type="button" data-rollcodex-floating-live>Journal</button>
       <button type="button" data-rollcodex-floating-send ${canSend && connected ? '' : 'disabled'}>Env.</button>
       <button type="button" data-rollcodex-floating-end ${canSend && connected ? '' : 'disabled'}>Fin</button>
       <button type="button" data-rollcodex-floating-forget ${connected ? '' : 'disabled'}>Oub.</button>
@@ -2685,9 +2685,9 @@ class RollCodexLiveMetricsApp extends FormApplication {
   static get defaultOptions() {
     return foundry.utils.mergeObject(super.defaultOptions, {
       id: 'rollcodex-live-metrics',
-      title: 'RollCodex - Classement live',
+      title: 'RollCodex - Journal live',
       template: `modules/${MODULE_ID}/templates/live-metrics.hbs`,
-      width: 620,
+      width: 760,
       closeOnSubmit: false,
       submitOnChange: false,
       resizable: true,
@@ -3652,9 +3652,9 @@ Hooks.once('init', () => {
   });
 
   game.settings.registerMenu(MODULE_ID, 'liveMetricsMenu', {
-    name: 'Classement live local RollCodex',
-    label: 'Ouvrir le classement live',
-    hint: 'Afficher les metriques locales calculees depuis les messages Foundry de cette session.',
+    name: 'Journal live local RollCodex',
+    label: 'Ouvrir le journal live',
+    hint: 'Afficher le classement et le fil local des metriques calculees depuis les messages Foundry de cette session.',
     icon: 'fas fa-chart-bar',
     type: RollCodexLiveMetricsApp,
     restricted: false,
