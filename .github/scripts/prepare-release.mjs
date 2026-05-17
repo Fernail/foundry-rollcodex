@@ -58,4 +58,14 @@ nextMeasuresScript = replaceRequired(
 );
 writeFileSync(measuresScriptPath, nextMeasuresScript);
 
-process.stdout.write(JSON.stringify({ version: nextVersion, tag: nextTag, zipName: nextZipName }));
+const releaseInfo = {
+  version: nextVersion,
+  tag: nextTag,
+  zip_name: nextZipName,
+};
+
+if (process.argv.includes('--github-output')) {
+  process.stdout.write(Object.entries(releaseInfo).map(([key, value]) => `${key}=${value}`).join('\n'));
+} else {
+  process.stdout.write(JSON.stringify(releaseInfo));
+}

@@ -28,11 +28,7 @@ jobs:
       - name: Prepare next release version
         id: prepare
         run: |
-          RELEASE_JSON=$(node .github/scripts/prepare-release.mjs)
-          echo "release_json=$RELEASE_JSON" >> "$GITHUB_OUTPUT"
-          echo "version=$(node -p \"JSON.parse(process.argv[1]).version\" \"$RELEASE_JSON\")" >> "$GITHUB_OUTPUT"
-          echo "tag=$(node -p \"JSON.parse(process.argv[1]).tag\" \"$RELEASE_JSON\")" >> "$GITHUB_OUTPUT"
-          echo "zip_name=$(node -p \"JSON.parse(process.argv[1]).zipName\" \"$RELEASE_JSON\")" >> "$GITHUB_OUTPUT"
+          node .github/scripts/prepare-release.mjs --github-output >> "$GITHUB_OUTPUT"
 
       - name: Commit bumped version
         run: |
