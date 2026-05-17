@@ -2,25 +2,26 @@
   <header class="rollcodex-connection__header">
     <div>
       <p class="rollcodex-connection__eyebrow">RollCodex</p>
-      <h2>Connexion du monde</h2>
+      <h2>Connexion RollCodex</h2>
     </div>
     <span class="rollcodex-connection__status {{#if connected}}is-connected{{else}}is-idle{{/if}}">
       {{#if connected}}Connecte{{else}}Non connecte{{/if}}
     </span>
   </header>
 
-  <section class="rollcodex-connection__section">
-    <label>
-      <span>Adresse RollCodex</span>
-      <input type="url" name="appUrl" value="{{appUrl}}" placeholder="http://localhost:5173" />
-    </label>
-    <p class="notes">Gardez la valeur proposee pour le test local. En production, utilisez une adresse publique RollCodex en HTTPS.</p>
-    <button type="button" class="rollcodex-button" data-action="save-url">Enregistrer l'adresse</button>
-  </section>
+  <section class="rollcodex-connection__section rollcodex-connection__main">
+    <div class="rollcodex-connection__url-row">
+      <label>
+        <span>Adresse RollCodex</span>
+        <input type="url" name="appUrl" value="{{appUrl}}" placeholder="http://localhost:5173" />
+      </label>
+      <button type="button" class="rollcodex-button rollcodex-button--ghost" data-action="save-url">
+        Actualiser
+      </button>
+    </div>
 
-  {{#if connected}}
-    <section class="rollcodex-connection__section rollcodex-connection__summary">
-      <dl>
+    {{#if connected}}
+      <dl class="rollcodex-connection__scope">
         <div>
           <dt>Registre</dt>
           <dd>{{workspaceLabel}}</dd>
@@ -41,89 +42,110 @@
           <dt>Systeme</dt>
           <dd>{{systemLabel}}</dd>
         </div>
-        <div>
-          <dt>Connexion</dt>
-          <dd>{{connectionId}}</dd>
-        </div>
       </dl>
-    </section>
 
-    <section class="rollcodex-connection__section rollcodex-connection__automation">
-      <label class="rollcodex-toggle">
-        <input type="checkbox" name="autoSnapshotEnabled" {{#if autoSnapshotEnabled}}checked{{/if}} />
-        <span>Capture automatique de fin de session</span>
-      </label>
-      <p class="notes">Active par defaut. Foundry tente une capture quand le monde ou l'onglet se ferme, et apres une periode d'inactivite du chat. Le bouton "Terminer la session" reste le moyen le plus fiable de cloturer une session.</p>
-      {{#if autoSnapshotLastSentAtLabel}}
-        <p class="rollcodex-connection__meta">Derniere capture : {{autoSnapshotLastSentAtLabel}}</p>
-      {{/if}}
-      {{#if autoSnapshotLastError}}
-        <p class="rollcodex-connection__error">Derniere erreur : {{autoSnapshotLastError}}</p>
-      {{/if}}
-    </section>
-  {{/if}}
-
-  <section class="rollcodex-connection__section rollcodex-connection__live">
-    <label class="rollcodex-toggle">
-      <input type="checkbox" name="liveMetricsEnabled" {{#if liveMetricsEnabled}}checked{{/if}} />
-      <span>Metriques live locales</span>
-    </label>
-    <p class="notes">Affiche un kikimeter Foundry en memoire. Ces metriques n'ecrivent pas dans RollCodex ; les captures restent relues avant import.</p>
-    <div class="rollcodex-connection__metrics">
-      <span class="rollcodex-pill rollcodex-pill--accent">Jets {{liveMetrics.totals.rolls}}</span>
-      <span class="rollcodex-pill">Degats {{liveMetrics.totals.damage}}</span>
-      <span class="rollcodex-pill">Soins {{liveMetrics.totals.healing}}</span>
-      <span class="rollcodex-pill rollcodex-pill--muted">Speakers {{#if liveMetrics.hasParticipants}}{{liveMetrics.participants.length}}{{else}}0{{/if}}</span>
-    </div>
-    <div class="rollcodex-connection__actions">
-      <button type="button" class="rollcodex-button" data-action="open-live-metrics">Ouvrir le kikimeter</button>
-      <button type="button" class="rollcodex-button" data-action="reset-live-metrics">Remettre a zero</button>
-    </div>
-  </section>
-
-  <section class="rollcodex-connection__section">
-    <label>
-      <span>Confirmation RollCodex</span>
-      <textarea name="confirmationPayload" rows="4" placeholder="Collez ici la confirmation si Foundry ne la recupere pas automatiquement."></textarea>
-    </label>
-    {{#if hasPendingPairing}}
-      {{#if pendingPairingCode}}
-        <div class="rollcodex-connection__pairing-code">
-          <span>Code de liaison</span>
-          <code>{{pendingPairingCode}}</code>
-        </div>
-      {{/if}}
-      {{#if pendingPairingUrl}}
-        <div class="rollcodex-connection__actions">
-          <a class="rollcodex-button rollcodex-button--primary" href="{{pendingPairingUrl}}" target="rollcodex-connect" data-action="open-pairing-url">
-            Ouvrir RollCodex
-          </a>
-          <button type="button" class="rollcodex-button" data-action="copy-pairing-url">
-            Copier le lien
-          </button>
-        </div>
-      {{/if}}
-      <p class="notes">Demande en attente : {{pendingConnectionId}}. Apres validation dans RollCodex, Foundry interroge l API de statut et finalise la liaison automatiquement. Le bouton Recuperer reste disponible en secours.</p>
+      <div class="rollcodex-connection__actions rollcodex-connection__session-actions">
+        <button type="button" class="rollcodex-button rollcodex-button--primary" data-action="end-session">
+          Terminer la session
+        </button>
+        <button type="button" class="rollcodex-button" data-action="send-snapshot">
+          Envoyer une capture
+        </button>
+      </div>
     {{else}}
-      <p class="notes">Cliquez d'abord sur Connecter avec RollCodex pour creer une demande de liaison.</p>
+      <div class="rollcodex-connection__pairing">
+        {{#if canPreparePairing}}
+          {{#if pendingPairingUrl}}
+            <div class="rollcodex-connection__actions rollcodex-connection__primary-actions">
+              <a class="rollcodex-button rollcodex-button--primary rollcodex-button--wide" href="{{pendingPairingUrl}}" target="rollcodex-connect" data-action="open-pairing-url">
+                Connecter avec RollCodex
+              </a>
+              <button type="button" class="rollcodex-button" data-action="copy-pairing-url">
+                Copier le lien
+              </button>
+            </div>
+          {{else}}
+            <button type="button" class="rollcodex-button rollcodex-button--primary rollcodex-button--wide" data-action="prepare-pairing">
+              Preparer le lien
+            </button>
+          {{/if}}
+
+          {{#if pendingPairingCode}}
+            <div class="rollcodex-connection__pairing-code">
+              <span>Code</span>
+              <code>{{pendingPairingCode}}</code>
+            </div>
+          {{/if}}
+        {{else}}
+          <p class="notes">Seul un MJ peut connecter ce monde a RollCodex.</p>
+        {{/if}}
+      </div>
     {{/if}}
   </section>
 
-  <footer class="rollcodex-connection__actions">
-    <button type="button" class="rollcodex-button rollcodex-button--primary" data-action="connect">
-      Connecter avec RollCodex
-    </button>
-    <button type="button" class="rollcodex-button" data-action="recover-confirmation">
-      Recuperer la confirmation
-    </button>
-    <button type="button" class="rollcodex-button rollcodex-button--primary" data-action="end-session" {{#unless connected}}disabled{{/unless}}>
-      Terminer la session
-    </button>
-    <button type="button" class="rollcodex-button" data-action="send-snapshot" {{#unless connected}}disabled{{/unless}}>
-      Envoyer une capture maintenant
-    </button>
-    <button type="button" class="rollcodex-button rollcodex-button--danger" data-action="disconnect" {{#unless connected}}disabled{{/unless}}>
-      Oublier la connexion
-    </button>
-  </footer>
+  <section class="rollcodex-connection__section rollcodex-connection__options">
+    {{#if connected}}
+      <div class="rollcodex-connection__option">
+        <label class="rollcodex-toggle">
+          <input type="checkbox" name="autoSnapshotEnabled" {{#if autoSnapshotEnabled}}checked{{/if}} />
+          <span>Capture automatique</span>
+        </label>
+        <div class="rollcodex-connection__option-meta">
+          <span>Fin de session et inactivite chat</span>
+          {{#if autoSnapshotLastSentAtLabel}}
+            <span>Derniere capture : {{autoSnapshotLastSentAtLabel}}</span>
+          {{/if}}
+          {{#if autoSnapshotLastError}}
+            <span class="rollcodex-connection__error">Erreur : {{autoSnapshotLastError}}</span>
+          {{/if}}
+        </div>
+      </div>
+    {{/if}}
+
+    <div class="rollcodex-connection__option">
+      <label class="rollcodex-toggle">
+        <input type="checkbox" name="liveMetricsEnabled" {{#if liveMetricsEnabled}}checked{{/if}} />
+        <span>Kikimeter local</span>
+      </label>
+      <div class="rollcodex-connection__metrics">
+        <span class="rollcodex-pill rollcodex-pill--accent">Jets {{liveMetrics.totals.rolls}}</span>
+        <span class="rollcodex-pill">Degats {{liveMetrics.totals.damage}}</span>
+        <span class="rollcodex-pill">Soins {{liveMetrics.totals.healing}}</span>
+        <span class="rollcodex-pill rollcodex-pill--muted">Speakers {{#if liveMetrics.hasParticipants}}{{liveMetrics.participants.length}}{{else}}0{{/if}}</span>
+      </div>
+      <div class="rollcodex-connection__actions">
+        <button type="button" class="rollcodex-button" data-action="open-live-metrics">Ouvrir</button>
+        <button type="button" class="rollcodex-button" data-action="reset-live-metrics">Remettre a zero</button>
+      </div>
+    </div>
+  </section>
+
+  <details class="rollcodex-connection__advanced">
+    <summary>Secours et maintenance</summary>
+    <div class="rollcodex-connection__advanced-body">
+      {{#if hasPendingPairing}}
+        <label>
+          <span>Confirmation manuelle</span>
+          <textarea name="confirmationPayload" rows="3" placeholder="Collez ici la confirmation RollCodex."></textarea>
+        </label>
+        <button type="button" class="rollcodex-button" data-action="recover-confirmation">
+          Recuperer la confirmation
+        </button>
+        <p class="notes">Demande en attente : {{pendingConnectionId}}</p>
+      {{else}}
+        {{#if connected}}
+          <div class="rollcodex-connection__summary-id">
+            <span>Connexion</span>
+            <code>{{connectionId}}</code>
+          </div>
+        {{else}}
+          <p class="notes">Aucune demande en attente.</p>
+        {{/if}}
+      {{/if}}
+
+      <button type="button" class="rollcodex-button rollcodex-button--danger" data-action="disconnect" {{#unless connected}}disabled{{/unless}}>
+        Oublier la connexion
+      </button>
+    </div>
+  </details>
 </form>

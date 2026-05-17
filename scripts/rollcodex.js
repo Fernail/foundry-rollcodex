@@ -2267,6 +2267,10 @@ function getPendingPairing() {
   };
 }
 
+function hasPendingPairingData(pairing = getPendingPairing()) {
+  return Boolean(pairing.connectionId && pairing.connectionSecret && pairing.state);
+}
+
 async function savePendingPairing({ connectionId, connectionSecret, state, pairingStatusEndpoint, pairingCode, pairingUrl }) {
   await game.settings.set(MODULE_ID, SETTINGS.pendingConnectionId, connectionId || '');
   await game.settings.set(MODULE_ID, SETTINGS.pendingConnectionSecret, connectionSecret || '');
@@ -2780,6 +2784,7 @@ class RollCodexConnectionApp extends FormApplication {
     this.autoRecoveryUntil = 0;
     this.autoRecoveryRunning = false;
     this.currentMessageHandler = null;
+    this.pairingPreparation = null;
     this.handleAutoRecoveryFocus = () => {
       this.tryCompletePendingPairing({ silent: true }).catch(() => {});
     };
@@ -2810,12 +2815,13 @@ class RollCodexConnectionApp extends FormApplication {
     const connection = getStoredConnection();
     const autoSnapshot = getAutoSnapshotSettings();
     const pendingPairing = getPendingPairing();
-    const hasPendingPairing = Boolean(pendingPairing.connectionId && pendingPairing.connectionSecret && pendingPairing.state);
+    const hasPendingPairing = hasPendingPairingData(pendingPairing);
     const liveMetrics = summarizeLiveMetricsForTemplate();
 
     return {
       appUrl,
       connected: Boolean(connection.connectionId && connection.connectionSecret && connection.endpoint),
+      canPreparePairing: Boolean(game.user?.isGM),
       hasPendingPairing,
       pendingConnectionId: pendingPairing.connectionId,
       pendingPairingCode: pendingPairing.pairingCode,
@@ -2837,31 +2843,49 @@ class RollCodexConnectionApp extends FormApplication {
   activateListeners(html) {
     super.activateListeners(html);
     html.find('[data-action="save-url"]').on('click', () => this.saveAppUrl(html).catch((error) => ui.notifications.error(error.message)));
-    html.find('[data-action="connect"]').on('click', () => this.startPairing(html).catch((error) => ui.notifications.error(error.message)));
+    html.find('[data-action="prepare-pairing"]').on('click', () => this.preparePairing(html, { force: true, notify: true }).catch((error) => ui.notifications.error(error.message)));
     html.find('[data-action="recover-confirmation"]').on('click', () => this.recoverConfirmation().catch((error) => ui.notifications.error(error.message)));
     html.find('[data-action="send-snapshot"]').on('click', () => this.sendSnapshot().catch((error) => ui.notifications.error(error.message)));
     html.find('[data-action="end-session"]').on('click', () => this.sendEndOfSessionSnapshot().catch((error) => ui.notifications.error(error.message)));
     html.find('[data-action="disconnect"]').on('click', () => this.disconnect().catch((error) => ui.notifications.error(error.message)));
     html.find('[data-action="open-live-metrics"]').on('click', () => new RollCodexLiveMetricsApp().render(true));
     html.find('[data-action="reset-live-metrics"]').on('click', () => this.resetLiveMetrics());
-    html.find('[data-action="open-pairing-url"]').on('click', () => this.startAutoRecovery());
+    html.find('[data-action="open-pairing-url"]').on('click', (event) => this.openPreparedPairing(event, html).catch((error) => ui.notifications.error(error.message)));
     html.find('[data-action="copy-pairing-url"]').on('click', () => this.copyPendingPairingUrl().catch((error) => ui.notifications.error(error.message)));
+    html.find('[name="appUrl"]').on('change', () => this.saveAppUrl(html, { notify: false }).catch((error) => ui.notifications.error(error.message)));
     html.find('[name="autoSnapshotEnabled"]').on('change', (event) => this.toggleAutoSnapshot(event.currentTarget.checked).catch((error) => ui.notifications.error(error.message)));
     html.find('[name="liveMetricsEnabled"]').on('change', (event) => this.toggleLiveMetrics(event.currentTarget.checked).catch((error) => ui.notifications.error(error.message)));
 
+    const connection = getStoredConnection();
     const pendingPairing = getPendingPairing();
-    if (pendingPairing.connectionId && pendingPairing.connectionSecret && pendingPairing.state) {
+    if (!hasStoredConnection(connection) && game.user?.isGM && !hasPendingPairingData(pendingPairing)) {
+      this.preparePairing(html).catch((error) => ui.notifications.warn(error.message));
+    } else if (hasPendingPairingData(pendingPairing)) {
+      this.installPendingPairingMessageHandler().catch(() => {});
       this.startAutoRecovery();
     }
   }
 
   async _updateObject() {}
 
-  async saveAppUrl(html) {
-    const form = html[0]?.closest('form') || this.form;
-    const appUrl = normalizeAppUrl(new FormData(form).get('appUrl'));
+  readAppUrl(html) {
+    const form = html?.[0]?.closest('form') || this.form;
+    if (!form) return normalizeAppUrl(game.settings.get(MODULE_ID, SETTINGS.appUrl));
+    return normalizeAppUrl(new FormData(form).get('appUrl'));
+  }
+
+  async saveAppUrl(html, { notify = true } = {}) {
+    const appUrl = this.readAppUrl(html);
+    const previousAppUrl = normalizeAppUrl(game.settings.get(MODULE_ID, SETTINGS.appUrl));
     await game.settings.set(MODULE_ID, SETTINGS.appUrl, appUrl);
-    ui.notifications.info('Adresse RollCodex enregistree.');
+    if (appUrl !== previousAppUrl) await clearPendingPairing();
+    if (notify) ui.notifications.info('Adresse RollCodex enregistree.');
+
+    if (!hasStoredConnection() && game.user?.isGM) {
+      await this.preparePairing(html, { force: appUrl !== previousAppUrl });
+      return;
+    }
+
     this.render(true);
   }
 
@@ -2889,107 +2913,155 @@ class RollCodexConnectionApp extends FormApplication {
     this.render(true);
   }
 
-  async startPairing(html) {
+  installPairingMessageHandler({ appUrl, state, connectionId, secretHash, secretPrefix, pairingCode }) {
+    const expectedOrigin = new URL(appUrl).origin;
+
+    const handleMessage = async (event) => {
+      const data = event?.data || {};
+      if (event.origin !== expectedOrigin) return;
+      if (data.type === MESSAGE_HANDSHAKE_TYPE && data.state === state && data.connectionId === connectionId) {
+        event.source?.postMessage({
+          type: MESSAGE_HANDSHAKE_RESPONSE_TYPE,
+          state,
+          connectionId,
+          secretHash,
+          secretPrefix,
+          pairingCode,
+        }, expectedOrigin);
+        return;
+      }
+
+      if (data.type !== MESSAGE_COMPLETE_TYPE || data.state !== state) return;
+
+      window.removeEventListener('message', handleMessage);
+      await this.completePairing(data);
+    };
+
+    if (this.currentMessageHandler) {
+      window.removeEventListener('message', this.currentMessageHandler);
+    }
+    this.currentMessageHandler = handleMessage;
+    window.addEventListener('message', handleMessage);
+  }
+
+  async installPendingPairingMessageHandler() {
+    const pendingPairing = getPendingPairing();
+    if (!hasPendingPairingData(pendingPairing)) return;
+
+    const appUrl = normalizeAppUrl(game.settings.get(MODULE_ID, SETTINGS.appUrl));
+    const secretHash = await sha256Hex(pendingPairing.connectionSecret);
+    const secretPrefix = pendingPairing.connectionSecret.slice(0, 18);
+    this.installPairingMessageHandler({
+      appUrl,
+      state: pendingPairing.state,
+      connectionId: pendingPairing.connectionId,
+      secretHash,
+      secretPrefix,
+      pairingCode: pendingPairing.pairingCode,
+    });
+  }
+
+  async preparePairing(html, { force = false, notify = false } = {}) {
     if (!game.user?.isGM) {
-      ui.notifications.error('Seul un MJ peut connecter ce monde a RollCodex.');
+      throw new Error('Seul un MJ peut connecter ce monde a RollCodex.');
+    }
+
+    const appUrl = this.readAppUrl(html);
+    const storedAppUrl = normalizeAppUrl(game.settings.get(MODULE_ID, SETTINGS.appUrl));
+    const pendingPairing = getPendingPairing();
+
+    if (!force && appUrl === storedAppUrl && hasPendingPairingData(pendingPairing) && pendingPairing.pairingUrl) {
+      await this.installPendingPairingMessageHandler();
+      return pendingPairing;
+    }
+
+    if (this.pairingPreparation) return this.pairingPreparation;
+
+    this.pairingPreparation = (async () => {
+      try {
+        await game.settings.set(MODULE_ID, SETTINGS.appUrl, appUrl);
+        if (force || appUrl !== storedAppUrl) await clearPendingPairing();
+
+        const connectionSecret = generateConnectionSecret();
+        const connectionId = generateUuid();
+        const state = generateState();
+        const secretHash = await sha256Hex(connectionSecret);
+        const secretPrefix = connectionSecret.slice(0, 18);
+        const pairingCode = buildPairingCode({ state, secretHash });
+        const pairingUrl = buildPairingUrl({
+          appUrl,
+          state,
+          connectionId,
+          secretHash,
+          secretPrefix,
+          pairingCode,
+        });
+
+        let connectionConfig = null;
+        try {
+          connectionConfig = await fetchConnectionConfig(appUrl);
+        } catch (error) {
+          console.warn('[RollCodex] Pairing status config unavailable', error);
+        }
+
+        const fallbackPairingStatusEndpoint = buildPairingStatusEndpoint(appUrl);
+
+        await savePendingPairing({
+          connectionId,
+          connectionSecret,
+          state,
+          pairingStatusEndpoint: connectionConfig?.pairingStatusEndpoint || fallbackPairingStatusEndpoint,
+          pairingCode,
+          pairingUrl,
+        });
+        this.installPairingMessageHandler({
+          appUrl,
+          state,
+          connectionId,
+          secretHash,
+          secretPrefix,
+          pairingCode,
+        });
+
+        const nextPairing = getPendingPairing();
+        if (notify) ui.notifications.info('Lien RollCodex pret.');
+        return nextPairing;
+      } catch (error) {
+        await clearPendingPairing();
+        this.stopAutoRecovery();
+        if (this.currentMessageHandler) {
+          window.removeEventListener('message', this.currentMessageHandler);
+          this.currentMessageHandler = null;
+        }
+        throw error;
+      } finally {
+        this.pairingPreparation = null;
+        this.render(true);
+      }
+    })();
+
+    return this.pairingPreparation;
+  }
+
+  async openPreparedPairing(event, html) {
+    const currentAppUrl = this.readAppUrl(html);
+    const storedAppUrl = normalizeAppUrl(game.settings.get(MODULE_ID, SETTINGS.appUrl));
+    const pendingPairing = getPendingPairing();
+
+    if (currentAppUrl !== storedAppUrl || !hasPendingPairingData(pendingPairing) || !pendingPairing.pairingUrl) {
+      event.preventDefault();
+      await this.preparePairing(html, { force: true, notify: true });
+      ui.notifications.info('Lien mis a jour. Cliquez a nouveau sur Connecter avec RollCodex.');
       return;
     }
 
-    const popup = window.open('about:blank', 'rollcodex-connect', 'popup,width=1040,height=820');
-    const popupBlocked = !popup;
+    this.installPendingPairingMessageHandler().catch(() => {});
+    this.startAutoRecovery();
+    ui.notifications.info('RollCodex ouvert. Foundry terminera la liaison automatiquement.');
+  }
 
-    try {
-      const form = html[0]?.closest('form') || this.form;
-      const appUrl = normalizeAppUrl(new FormData(form).get('appUrl'));
-      await game.settings.set(MODULE_ID, SETTINGS.appUrl, appUrl);
-
-      const connectionSecret = generateConnectionSecret();
-      const connectionId = generateUuid();
-      const state = generateState();
-      const secretHash = await sha256Hex(connectionSecret);
-      const secretPrefix = connectionSecret.slice(0, 18);
-      const pairingCode = buildPairingCode({ state, secretHash });
-      const pairingUrl = buildPairingUrl({
-        appUrl,
-        state,
-        connectionId,
-        secretHash,
-        secretPrefix,
-        pairingCode,
-      });
-
-      let connectionConfig = null;
-      try {
-        connectionConfig = await fetchConnectionConfig(appUrl);
-      } catch (error) {
-        console.warn('[RollCodex] Pairing status config unavailable', error);
-        ui.notifications.warn('Configuration API RollCodex indisponible. Fallback applique pour le statut de liaison.');
-      }
-
-      const fallbackPairingStatusEndpoint = buildPairingStatusEndpoint(appUrl);
-
-      await savePendingPairing({
-        connectionId,
-        connectionSecret,
-        state,
-        pairingStatusEndpoint: connectionConfig?.pairingStatusEndpoint || fallbackPairingStatusEndpoint,
-        pairingCode,
-        pairingUrl,
-      });
-      this.render(true);
-
-      const expectedOrigin = new URL(appUrl).origin;
-
-      const handleMessage = async (event) => {
-        const data = event?.data || {};
-        if (event.origin !== expectedOrigin) return;
-        if (data.type === MESSAGE_HANDSHAKE_TYPE && data.state === state && data.connectionId === connectionId) {
-          event.source?.postMessage({
-            type: MESSAGE_HANDSHAKE_RESPONSE_TYPE,
-            state,
-            connectionId,
-            secretHash,
-            secretPrefix,
-            pairingCode,
-          }, expectedOrigin);
-          return;
-        }
-
-        if (data.type !== MESSAGE_COMPLETE_TYPE || data.state !== state) return;
-
-        window.removeEventListener('message', handleMessage);
-        await this.completePairing(data);
-      };
-
-      if (this.currentMessageHandler) {
-        window.removeEventListener('message', this.currentMessageHandler);
-      }
-      this.currentMessageHandler = handleMessage;
-      window.addEventListener('message', handleMessage);
-      this.startAutoRecovery();
-
-      if (popup) {
-        popup.location.href = pairingUrl;
-        ui.notifications.info('Connexion RollCodex ouverte. Foundry detectera la validation via l API RollCodex.');
-      } else {
-        await copyTextToClipboard(pairingUrl).catch(() => false);
-        ui.notifications.warn('Ouverture bloquee. La demande de liaison reste active : utilisez le bouton Ouvrir RollCodex ou le lien copie.');
-      }
-    } catch (error) {
-      try { popup?.close(); } catch (_closeError) { /* popup might already be closed */ }
-      await clearPendingPairing();
-      this.stopAutoRecovery();
-      if (this.currentMessageHandler) {
-        window.removeEventListener('message', this.currentMessageHandler);
-        this.currentMessageHandler = null;
-      }
-      this.render(true);
-      throw error;
-    }
-
-    if (popupBlocked) {
-      this.render(true);
-    }
+  async startPairing(html) {
+    return this.preparePairing(html, { force: true, notify: true });
   }
 
   async copyPendingPairingUrl() {
@@ -3003,7 +3075,7 @@ class RollCodexConnectionApp extends FormApplication {
     if (copied) {
       ui.notifications.info('Lien RollCodex copie.');
     } else {
-      ui.notifications.warn('Copie impossible. Utilisez le bouton Ouvrir RollCodex.');
+      ui.notifications.warn('Copie impossible. Utilisez le bouton Connecter avec RollCodex.');
     }
   }
 
