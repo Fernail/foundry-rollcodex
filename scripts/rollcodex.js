@@ -1075,12 +1075,29 @@ function buildPairingCode({ state, secretHash }) {
   return `${String(secretHash || '').slice(0, 4)}-${String(state || '').slice(-4)}`.toUpperCase();
 }
 
-function buildPairingUrl({ appUrl, state, connectionId }) {
+function isLocalRollCodexAppUrl(appUrl) {
+  try {
+    const url = new URL(appUrl);
+    return ['localhost', '127.0.0.1', '::1', '[::1]'].includes(url.hostname.toLowerCase());
+  } catch (_error) {
+    return false;
+  }
+}
+
+function buildPairingUrl({ appUrl, state, connectionId, secretHash = '', secretPrefix = '', pairingCode = '' }) {
   const metadata = getWorldMetadata();
   const url = new URL('/vtt/connect/foundry', appUrl);
   url.searchParams.set('state', state);
   url.searchParams.set('connection_id', connectionId);
   url.searchParams.set('source_origin', window.location.origin);
+
+  // Fallback local: la page RollCodex peut lire la preuve directement dans l URL
+  // quand le popup est detache du contexte Foundry et perd window.opener.
+  if (isLocalRollCodexAppUrl(appUrl) && secretHash) {
+    url.searchParams.set('local_secret_hash', secretHash);
+    if (secretPrefix) url.searchParams.set('local_secret_prefix', secretPrefix);
+    if (pairingCode) url.searchParams.set('local_pairing_code', pairingCode);
+  }
 
   Object.entries(metadata).forEach(([key, value]) => {
     if (value) url.searchParams.set(key, value);
@@ -2824,7 +2841,14 @@ class RollCodexConnectionApp extends FormApplication {
     const secretHash = await sha256Hex(connectionSecret);
     const secretPrefix = connectionSecret.slice(0, 18);
     const pairingCode = buildPairingCode({ state, secretHash });
-    const pairingUrl = buildPairingUrl({ appUrl, state, connectionId });
+    const pairingUrl = buildPairingUrl({
+      appUrl,
+      state,
+      connectionId,
+      secretHash,
+      secretPrefix,
+      pairingCode,
+    });
 
     let connectionConfig = null;
     try {
