@@ -1,6 +1,6 @@
 /* global Hooks, game */
 /**
- * RollCodex Measures Extension - Phase 1b (v0.1.16)
+ * RollCodex Measures Extension - Phase 1b (v0.1.17)
  *
  * Extension du module Foundry pour supporter les mesures workspace du profil v2.
  * Ce module etend les fonctionnalites live de rollcodex.js sans le modifier directement.
@@ -8,7 +8,7 @@
  * Copie inline de src/lib/vtt/measureMatcher.js (source de verite pour les tests).
  * Les signatures doivent rester synchronisees.
  *
- * @version 0.1.16 - Phase 1b (2026-05-17)
+ * @version 0.1.17 - Phase 1b (2026-05-17)
  */
 
 (() => {
