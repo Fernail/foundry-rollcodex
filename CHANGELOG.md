@@ -1,3 +1,15 @@
+## 0.1.36 (2026-05-18)
+
+- Fix critique: `extractRollFigures` ne forward qu un sous-ensemble des
+  champs (total, count, nat20, damageHint, healHint) alors que
+  `rollcodex-measures.js` attend en plus `actionType`, `actionName`,
+  `rollNatural`, `isCritical`, `isFumble`. Sans `actionType`, tous les
+  events arrivaient avec `event_type='roll'` et etaient rejetes par le
+  filtre `filter_event_type:['attack']` des mesures type "Attaque
+  moyenne". Les jets de PJ ne montaient donc jamais le classement live.
+  Forward complet ajoute, plus `rollTotal`/`rollCount` alias pour la
+  compat directe.
+
 ## 0.1.34 (2026-05-18)
 
 - Fix: le panneau live se rafraichissait AVANT que `processMessageForMeasures`

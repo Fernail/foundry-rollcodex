@@ -1,7 +1,7 @@
 /* global Dialog, FormApplication, Hooks, foundry, game, ui */
 
 const MODULE_ID = 'rollcodex';
-const MODULE_VERSION = '0.1.35';
+const MODULE_VERSION = '0.1.36';
 const DEFAULT_ROLLCODEX_APP_URL = 'http://localhost:5173';
 const MESSAGE_HANDSHAKE_TYPE = 'rollcodex:vtt-pairing-handshake';
 const MESSAGE_HANDSHAKE_RESPONSE_TYPE = 'rollcodex:vtt-pairing-handshake-response';
@@ -2582,13 +2582,24 @@ function extractRollFigures(message) {
   const rawText = stripHtml(message?.content || '');
   const rolls = getMessageRolls(message);
   const figures = getMessageFigures({ message, rawText, item, rolls });
+  const rollNatural = Array.isArray(figures.d20Results) && figures.d20Results.length > 0
+    ? Number(figures.d20Results[0])
+    : null;
 
   return {
     total: figures.rollTotal,
+    rollTotal: figures.rollTotal,
     count: figures.rollCount,
+    rollCount: figures.rollCount,
     nat20: figures.criticalCount,
+    fumbleCount: figures.fumbleCount,
     damageHint: figures.damage,
     healHint: figures.healing,
+    actionType: figures.actionType,
+    actionName: getActionName(item, rawText, message?.flavor || 'Action'),
+    rollNatural: Number.isFinite(rollNatural) ? rollNatural : null,
+    isCritical: figures.criticalCount > 0,
+    isFumble: figures.fumbleCount > 0,
   };
 }
 
