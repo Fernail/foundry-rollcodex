@@ -93,6 +93,16 @@
           <code>{{pendingPairingCode}}</code>
         </div>
       {{/if}}
+      {{#if pendingPairingUrl}}
+        <div class="rollcodex-connection__actions">
+          <a class="rollcodex-button rollcodex-button--primary" href="{{pendingPairingUrl}}" target="rollcodex-connect" data-action="open-pairing-url">
+            Ouvrir RollCodex
+          </a>
+          <button type="button" class="rollcodex-button" data-action="copy-pairing-url">
+            Copier le lien
+          </button>
+        </div>
+      {{/if}}
       <p class="notes">Demande en attente : {{pendingConnectionId}}. Apres validation dans RollCodex, Foundry interroge l API de statut et finalise la liaison automatiquement. Le bouton Recuperer reste disponible en secours.</p>
     {{else}}
       <p class="notes">Cliquez d'abord sur Connecter avec RollCodex pour creer une demande de liaison.</p>

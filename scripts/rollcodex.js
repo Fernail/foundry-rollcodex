@@ -1,7 +1,7 @@
 /* global Dialog, FormApplication, Hooks, foundry, game, ui */
 
 const MODULE_ID = 'rollcodex';
-const MODULE_VERSION = '0.1.19';
+const MODULE_VERSION = '0.1.21';
 const DEFAULT_ROLLCODEX_APP_URL = 'http://localhost:5173';
 const MESSAGE_HANDSHAKE_TYPE = 'rollcodex:vtt-pairing-handshake';
 const MESSAGE_HANDSHAKE_RESPONSE_TYPE = 'rollcodex:vtt-pairing-handshake-response';
@@ -75,6 +75,7 @@ const SETTINGS = {
   pendingState: 'pendingState',
   pendingPairingStatusEndpoint: 'pendingPairingStatusEndpoint',
   pendingPairingCode: 'pendingPairingCode',
+  pendingPairingUrl: 'pendingPairingUrl',
   autoSnapshotEnabled: 'autoSnapshotEnabled',
   autoSnapshotMinIntervalMs: 'autoSnapshotMinIntervalMs',
   autoSnapshotIdleMinutes: 'autoSnapshotIdleMinutes',
@@ -96,6 +97,7 @@ const CLIENT_SCOPED_SETTINGS = new Set([
   SETTINGS.pendingState,
   SETTINGS.pendingPairingStatusEndpoint,
   SETTINGS.pendingPairingCode,
+  SETTINGS.pendingPairingUrl,
   SETTINGS.liveMetricsEnabled,
   SETTINGS.floatingPanelCollapsed,
   SETTINGS.floatingPanelLeft,
@@ -1140,6 +1142,30 @@ function buildPairingStatusEndpointCandidates(appUrl, preferredEndpoint = '') {
   }
 
   return candidates;
+}
+
+async function copyTextToClipboard(value) {
+  const text = normalizeString(value);
+  if (!text) return false;
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', 'readonly');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    return document.execCommand('copy');
+  } finally {
+    textarea.remove();
+  }
 }
 
 async function fetchConnectionConfig(appUrl) {
@@ -2237,15 +2263,17 @@ function getPendingPairing() {
     state: game.settings.get(MODULE_ID, SETTINGS.pendingState),
     pairingStatusEndpoint: game.settings.get(MODULE_ID, SETTINGS.pendingPairingStatusEndpoint),
     pairingCode: game.settings.get(MODULE_ID, SETTINGS.pendingPairingCode),
+    pairingUrl: game.settings.get(MODULE_ID, SETTINGS.pendingPairingUrl),
   };
 }
 
-async function savePendingPairing({ connectionId, connectionSecret, state, pairingStatusEndpoint, pairingCode }) {
+async function savePendingPairing({ connectionId, connectionSecret, state, pairingStatusEndpoint, pairingCode, pairingUrl }) {
   await game.settings.set(MODULE_ID, SETTINGS.pendingConnectionId, connectionId || '');
   await game.settings.set(MODULE_ID, SETTINGS.pendingConnectionSecret, connectionSecret || '');
   await game.settings.set(MODULE_ID, SETTINGS.pendingState, state || '');
   await game.settings.set(MODULE_ID, SETTINGS.pendingPairingStatusEndpoint, pairingStatusEndpoint || '');
   await game.settings.set(MODULE_ID, SETTINGS.pendingPairingCode, pairingCode || '');
+  await game.settings.set(MODULE_ID, SETTINGS.pendingPairingUrl, pairingUrl || '');
 }
 
 async function clearPendingPairing() {
@@ -2254,6 +2282,7 @@ async function clearPendingPairing() {
   await game.settings.set(MODULE_ID, SETTINGS.pendingState, '');
   await game.settings.set(MODULE_ID, SETTINGS.pendingPairingStatusEndpoint, '');
   await game.settings.set(MODULE_ID, SETTINGS.pendingPairingCode, '');
+  await game.settings.set(MODULE_ID, SETTINGS.pendingPairingUrl, '');
 }
 
 function refreshLivePanels() {
@@ -2790,6 +2819,7 @@ class RollCodexConnectionApp extends FormApplication {
       hasPendingPairing,
       pendingConnectionId: pendingPairing.connectionId,
       pendingPairingCode: pendingPairing.pairingCode,
+      pendingPairingUrl: pendingPairing.pairingUrl,
       autoSnapshotEnabled: autoSnapshot.enabled,
       autoSnapshotLastSentAtLabel: formatDateTime(autoSnapshot.lastSentAt),
       autoSnapshotLastError: autoSnapshot.lastError,
@@ -2814,6 +2844,8 @@ class RollCodexConnectionApp extends FormApplication {
     html.find('[data-action="disconnect"]').on('click', () => this.disconnect().catch((error) => ui.notifications.error(error.message)));
     html.find('[data-action="open-live-metrics"]').on('click', () => new RollCodexLiveMetricsApp().render(true));
     html.find('[data-action="reset-live-metrics"]').on('click', () => this.resetLiveMetrics());
+    html.find('[data-action="open-pairing-url"]').on('click', () => this.startAutoRecovery());
+    html.find('[data-action="copy-pairing-url"]').on('click', () => this.copyPendingPairingUrl().catch((error) => ui.notifications.error(error.message)));
     html.find('[name="autoSnapshotEnabled"]').on('change', (event) => this.toggleAutoSnapshot(event.currentTarget.checked).catch((error) => ui.notifications.error(error.message)));
     html.find('[name="liveMetricsEnabled"]').on('change', (event) => this.toggleLiveMetrics(event.currentTarget.checked).catch((error) => ui.notifications.error(error.message)));
 
@@ -2864,10 +2896,7 @@ class RollCodexConnectionApp extends FormApplication {
     }
 
     const popup = window.open('about:blank', 'rollcodex-connect', 'popup,width=1040,height=820');
-    if (!popup) {
-      ui.notifications.warn('Ouverture bloquee. Autorisez les popups puis relancez la connexion RollCodex.');
-      return;
-    }
+    const popupBlocked = !popup;
 
     try {
       const form = html[0]?.closest('form') || this.form;
@@ -2905,6 +2934,7 @@ class RollCodexConnectionApp extends FormApplication {
         state,
         pairingStatusEndpoint: connectionConfig?.pairingStatusEndpoint || fallbackPairingStatusEndpoint,
         pairingCode,
+        pairingUrl,
       });
       this.render(true);
 
@@ -2938,10 +2968,15 @@ class RollCodexConnectionApp extends FormApplication {
       window.addEventListener('message', handleMessage);
       this.startAutoRecovery();
 
-      popup.location.href = pairingUrl;
-      ui.notifications.info('Connexion RollCodex ouverte. Foundry detectera la validation via l API RollCodex.');
+      if (popup) {
+        popup.location.href = pairingUrl;
+        ui.notifications.info('Connexion RollCodex ouverte. Foundry detectera la validation via l API RollCodex.');
+      } else {
+        await copyTextToClipboard(pairingUrl).catch(() => false);
+        ui.notifications.warn('Ouverture bloquee. La demande de liaison reste active : utilisez le bouton Ouvrir RollCodex ou le lien copie.');
+      }
     } catch (error) {
-      try { popup.close(); } catch (_closeError) { /* popup might already be closed */ }
+      try { popup?.close(); } catch (_closeError) { /* popup might already be closed */ }
       await clearPendingPairing();
       this.stopAutoRecovery();
       if (this.currentMessageHandler) {
@@ -2950,6 +2985,25 @@ class RollCodexConnectionApp extends FormApplication {
       }
       this.render(true);
       throw error;
+    }
+
+    if (popupBlocked) {
+      this.render(true);
+    }
+  }
+
+  async copyPendingPairingUrl() {
+    const pendingPairing = getPendingPairing();
+    if (!pendingPairing.pairingUrl) {
+      ui.notifications.warn('Aucun lien RollCodex en attente.');
+      return;
+    }
+
+    const copied = await copyTextToClipboard(pendingPairing.pairingUrl);
+    if (copied) {
+      ui.notifications.info('Lien RollCodex copie.');
+    } else {
+      ui.notifications.warn('Copie impossible. Utilisez le bouton Ouvrir RollCodex.');
     }
   }
 

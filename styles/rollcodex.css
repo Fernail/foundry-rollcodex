@@ -285,6 +285,7 @@
   font-weight: 600;
   gap: 6px;
   padding: 7px 10px;
+  text-decoration: none;
 }
 
 .rollcodex-button:disabled {
