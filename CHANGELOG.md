@@ -2,11 +2,17 @@
 
 - Panneau flottant repense en paysage, aligne sur Roll20: header avec badge
   connecte/offline (pastille verte si en ligne), sous-titre registre/table,
-  bandeau de statistiques (msg, jets, dmg, crit) et boutons en grille compacte.
+  bandeau de statistiques (msg, jets) et boutons en grille compacte.
 - Bloc mesure dedie avec selecteur + valeur globale ("GLOBAL 10.8") et delta
   colore (+1.3 vert si positif, rouge si negatif).
 - Classement avec delta par participant et zebra rows pour la lisibilite.
 - Mode compact simplifie: titre + scope + badge de statut sur une seule ligne.
+- Les icones des mesures ne sont plus injectees dans le selecteur (les cles
+  d icones type "flame"/"target" s affichaient en texte brut, illisible).
+- Mode reduit aligne sur le chrome natif Foundry (fond noir semi-transparent,
+  bordure grise fine, boutons hover orange): affiche le scope, le statut, la
+  mesure selectionnee avec valeur globale, et le top 5 du classement avec
+  delta. Le texte porte un text-shadow pour rester lisible sur la map.
 
 ## 0.1.19 (2026-05-17)
 

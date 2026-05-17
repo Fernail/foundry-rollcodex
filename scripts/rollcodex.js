@@ -1692,7 +1692,7 @@ function renderFloatingMeasureHtml(rankingSummary) {
 
   const options = rankingSummary.availableMeasures.map((measure) => {
     const selected = measure.id === rankingSummary.selectedMeasureId ? 'selected' : '';
-    const optionLabel = measure.icon ? `${measure.icon} ${measure.name || measure.id}` : (measure.name || measure.id);
+    const optionLabel = measure.name || measure.id;
     return `<option value="${escapeHtml(measure.id)}" ${selected}>${escapeHtml(optionLabel)}</option>`;
   }).join('');
 
@@ -1785,8 +1785,6 @@ function renderFloatingPanel() {
       <div class="rollcodex-floating-panel__stats">
         <span><strong>${escapeHtml(totals.messages || '0')}</strong> msg</span>
         <span><strong>${escapeHtml(totals.rolls || '0')}</strong> jets</span>
-        <span><strong>${escapeHtml(totals.damage || '0')}</strong> dmg</span>
-        <span><strong>${escapeHtml(totals.criticals || '0')}</strong> crit</span>
       </div>
     `
     : '';
@@ -1796,6 +1794,33 @@ function renderFloatingPanel() {
   panel.style.top = `${Math.max(8, settings.top)}px`;
 
   if (settings.collapsed) {
+    const compactMeasureLine = rankingSummary.hasMeasure && rankingSummary.measureName
+      ? `
+        <div class="rollcodex-floating-panel__compact-measure">
+          <span class="rollcodex-floating-panel__compact-measure-name">${escapeHtml(rankingSummary.measureName)}</span>
+          ${rankingSummary.globalValue ? `<strong class="rollcodex-floating-panel__compact-measure-value">${escapeHtml(rankingSummary.globalValue)}</strong>` : ''}
+          ${rankingSummary.globalDelta ? `<span class="rollcodex-floating-panel__compact-measure-delta ${rankingSummary.globalDeltaPositive ? 'is-positive' : rankingSummary.globalDeltaNegative ? 'is-negative' : ''}">${escapeHtml(rankingSummary.globalDelta)}</span>` : ''}
+        </div>
+      `
+      : '';
+    const compactRanking = rankingSummary.rows.length > 0
+      ? `
+        <ol class="rollcodex-floating-panel__compact-ranking-list">
+          ${rankingSummary.rows.slice(0, 5).map((entry) => {
+            const deltaCls = entry.deltaPositive ? 'is-positive' : entry.deltaNegative ? 'is-negative' : '';
+            return `
+              <li class="${entry.unresolved ? 'is-unresolved' : ''}">
+                <span class="rollcodex-floating-panel__compact-ranking-rank">${entry.rank}</span>
+                <span class="rollcodex-floating-panel__compact-ranking-label" title="${escapeHtml(entry.label)}">${escapeHtml(entry.label)}</span>
+                <span class="rollcodex-floating-panel__compact-ranking-value">${escapeHtml(entry.value)}</span>
+                ${entry.delta ? `<span class="rollcodex-floating-panel__compact-ranking-delta ${deltaCls}">${escapeHtml(entry.delta)}</span>` : ''}
+              </li>
+            `;
+          }).join('')}
+        </ol>
+      `
+      : '';
+
     panel.innerHTML = `
       <div class="rollcodex-floating-panel__compact">
         <button type="button" class="rollcodex-floating-panel__drag" data-rollcodex-floating-drag title="Deplacer"><i class="fas fa-grip-lines"></i></button>
@@ -1806,6 +1831,8 @@ function renderFloatingPanel() {
         <span class="rollcodex-floating-panel__status-badge ${statusBadgeClass}" title="${escapeHtml(status)}">${escapeHtml(statusLabel)}</span>
         <button type="button" class="rollcodex-floating-panel__action" data-rollcodex-floating-collapse title="Ouvrir">+</button>
       </div>
+      ${compactMeasureLine}
+      ${compactRanking}
     `;
     bindFloatingPanelEvents(panel);
     return;
