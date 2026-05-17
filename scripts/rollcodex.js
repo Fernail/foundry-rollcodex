@@ -2863,86 +2863,94 @@ class RollCodexConnectionApp extends FormApplication {
       return;
     }
 
-    const form = html[0]?.closest('form') || this.form;
-    const appUrl = normalizeAppUrl(new FormData(form).get('appUrl'));
-    await game.settings.set(MODULE_ID, SETTINGS.appUrl, appUrl);
-
-    const connectionSecret = generateConnectionSecret();
-    const connectionId = generateUuid();
-    const state = generateState();
-    const secretHash = await sha256Hex(connectionSecret);
-    const secretPrefix = connectionSecret.slice(0, 18);
-    const pairingCode = buildPairingCode({ state, secretHash });
-    const pairingUrl = buildPairingUrl({
-      appUrl,
-      state,
-      connectionId,
-      secretHash,
-      secretPrefix,
-      pairingCode,
-    });
-
-    let connectionConfig = null;
-    try {
-      connectionConfig = await fetchConnectionConfig(appUrl);
-    } catch (error) {
-      console.warn('[RollCodex] Pairing status config unavailable', error);
-      ui.notifications.warn('Configuration API RollCodex indisponible. Fallback applique pour le statut de liaison.');
-    }
-
-    const fallbackPairingStatusEndpoint = buildPairingStatusEndpoint(appUrl);
-
-    await savePendingPairing({
-      connectionId,
-      connectionSecret,
-      state,
-      pairingStatusEndpoint: connectionConfig?.pairingStatusEndpoint || fallbackPairingStatusEndpoint,
-      pairingCode,
-    });
-    this.render(true);
-
-    const expectedOrigin = new URL(appUrl).origin;
-
-    const handleMessage = async (event) => {
-      const data = event?.data || {};
-      if (event.origin !== expectedOrigin) return;
-      if (data.type === MESSAGE_HANDSHAKE_TYPE && data.state === state && data.connectionId === connectionId) {
-        event.source?.postMessage({
-          type: MESSAGE_HANDSHAKE_RESPONSE_TYPE,
-          state,
-          connectionId,
-          secretHash,
-          secretPrefix,
-          pairingCode,
-        }, expectedOrigin);
-        return;
-      }
-
-      if (data.type !== MESSAGE_COMPLETE_TYPE || data.state !== state) return;
-
-      window.removeEventListener('message', handleMessage);
-      await this.completePairing(data);
-    };
-
-    if (this.currentMessageHandler) {
-      window.removeEventListener('message', this.currentMessageHandler);
-    }
-    this.currentMessageHandler = handleMessage;
-    window.addEventListener('message', handleMessage);
-    this.startAutoRecovery();
-
-    const popup = window.open(pairingUrl, 'rollcodex-connect', 'popup,width=1040,height=820');
+    const popup = window.open('about:blank', 'rollcodex-connect', 'popup,width=1040,height=820');
     if (!popup) {
-      window.removeEventListener('message', handleMessage);
-      this.currentMessageHandler = null;
-      this.stopAutoRecovery();
-      await clearPendingPairing();
       ui.notifications.warn('Ouverture bloquee. Autorisez les popups puis relancez la connexion RollCodex.');
-      this.render(true);
       return;
     }
 
-    ui.notifications.info('Connexion RollCodex ouverte. Foundry detectera la validation via l API RollCodex.');
+    try {
+      const form = html[0]?.closest('form') || this.form;
+      const appUrl = normalizeAppUrl(new FormData(form).get('appUrl'));
+      await game.settings.set(MODULE_ID, SETTINGS.appUrl, appUrl);
+
+      const connectionSecret = generateConnectionSecret();
+      const connectionId = generateUuid();
+      const state = generateState();
+      const secretHash = await sha256Hex(connectionSecret);
+      const secretPrefix = connectionSecret.slice(0, 18);
+      const pairingCode = buildPairingCode({ state, secretHash });
+      const pairingUrl = buildPairingUrl({
+        appUrl,
+        state,
+        connectionId,
+        secretHash,
+        secretPrefix,
+        pairingCode,
+      });
+
+      let connectionConfig = null;
+      try {
+        connectionConfig = await fetchConnectionConfig(appUrl);
+      } catch (error) {
+        console.warn('[RollCodex] Pairing status config unavailable', error);
+        ui.notifications.warn('Configuration API RollCodex indisponible. Fallback applique pour le statut de liaison.');
+      }
+
+      const fallbackPairingStatusEndpoint = buildPairingStatusEndpoint(appUrl);
+
+      await savePendingPairing({
+        connectionId,
+        connectionSecret,
+        state,
+        pairingStatusEndpoint: connectionConfig?.pairingStatusEndpoint || fallbackPairingStatusEndpoint,
+        pairingCode,
+      });
+      this.render(true);
+
+      const expectedOrigin = new URL(appUrl).origin;
+
+      const handleMessage = async (event) => {
+        const data = event?.data || {};
+        if (event.origin !== expectedOrigin) return;
+        if (data.type === MESSAGE_HANDSHAKE_TYPE && data.state === state && data.connectionId === connectionId) {
+          event.source?.postMessage({
+            type: MESSAGE_HANDSHAKE_RESPONSE_TYPE,
+            state,
+            connectionId,
+            secretHash,
+            secretPrefix,
+            pairingCode,
+          }, expectedOrigin);
+          return;
+        }
+
+        if (data.type !== MESSAGE_COMPLETE_TYPE || data.state !== state) return;
+
+        window.removeEventListener('message', handleMessage);
+        await this.completePairing(data);
+      };
+
+      if (this.currentMessageHandler) {
+        window.removeEventListener('message', this.currentMessageHandler);
+      }
+      this.currentMessageHandler = handleMessage;
+      window.addEventListener('message', handleMessage);
+      this.startAutoRecovery();
+
+      popup.location.href = pairingUrl;
+      ui.notifications.info('Connexion RollCodex ouverte. Foundry detectera la validation via l API RollCodex.');
+    } catch (error) {
+      try { popup.close(); } catch (_closeError) { /* popup might already be closed */ }
+      await clearPendingPairing();
+      this.stopAutoRecovery();
+      if (this.currentMessageHandler) {
+        window.removeEventListener('message', this.currentMessageHandler);
+        this.currentMessageHandler = null;
+      }
+      this.render(true);
+      throw error;
+    }
   }
 
   startAutoRecovery() {
