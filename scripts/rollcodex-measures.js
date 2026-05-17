@@ -734,6 +734,8 @@
         recordMeasureMatch(event.message_id, measure.id);
       }
     }
+
+    throttledRefreshLivePanels();
   }
 
   function getMeasureMatchesForSnapshot() {

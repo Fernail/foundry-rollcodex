@@ -1,18 +1,48 @@
+## 0.1.34 (2026-05-18)
+
+- Fix: le panneau live se rafraichissait AVANT que `processMessageForMeasures`
+  n ait stocke l evenement (deux hooks `createChatMessage` distincts dans
+  rollcodex.js et rollcodex-measures.js). Du coup chaque jet apparaissait avec
+  un message de decalage, et le GM ne montait jamais dans le classement quand
+  il jouait des NPC. Ajout de `throttledRefreshLivePanels()` en fin de
+  `processMessageForMeasures` pour declencher un re-render apres l ajout.
+- Comportement confirme: tous les acteurs non-PJ (npc/monster/unknown) sont
+  mappes sur le bucket GM (`getGmMetricBucket`), le GM apparait donc dans le
+  classement avec son nom Foundry des qu il roule une attaque sur un NPC,
+  pour toute mesure dont `target_role` est `all` ou `gm_only`/`npcs_only`.
+
+## 0.1.33 (2026-05-18)
+
+- Fix: les jets effectues par le GM en tant que personnage joueur (Milo
+  Vernet, etc.) n etaient jamais attribues au PC dans le panneau live. La
+  fonction `inferActorKind` n etait pas exposee sous le nom
+  `globalThis.inferRollCodexActorKind` attendu par `rollcodex-measures.js`,
+  donc tous les events tombaient dans le bucket GM et le ranking restait
+  fige sur la baseline du profil. Export ajoute, les deltas live se
+  calculent maintenant correctement.
+
+## 0.1.32 (2026-05-18)
+
+- Mode reduit enrichi: affiche la mesure selectionnee avec valeur globale
+  et delta, plus le top 5 du classement avec delta par participant.
+- Mode reduit style chrome natif Foundry (fond noir semi-transparent
+  rgba(0,0,0,0.55) + backdrop-filter blur, bordure grise fine
+  rgba(60,60,60,0.85), border-radius 5px, boutons hover orange Foundry).
+- Bandeau de stats du mode etendu reduit a msg + jets (dmg et crit retires
+  car peu pertinents en KPI hauts niveau).
+- Icones des mesures retirees du selecteur (les cles type "flame"/"target"
+  s affichaient en texte brut illisible).
+
 ## 0.1.30 (2026-05-18)
 
 - Panneau flottant repense en paysage, aligne sur Roll20: header avec badge
   connecte/offline (pastille verte si en ligne), sous-titre registre/table,
-  bandeau de statistiques (msg, jets) et boutons en grille compacte.
+  bandeau de statistiques (msg, jets, dmg, crit) et boutons en grille
+  compacte.
 - Bloc mesure dedie avec selecteur + valeur globale ("GLOBAL 10.8") et delta
   colore (+1.3 vert si positif, rouge si negatif).
 - Classement avec delta par participant et zebra rows pour la lisibilite.
 - Mode compact simplifie: titre + scope + badge de statut sur une seule ligne.
-- Les icones des mesures ne sont plus injectees dans le selecteur (les cles
-  d icones type "flame"/"target" s affichaient en texte brut, illisible).
-- Mode reduit aligne sur le chrome natif Foundry (fond noir semi-transparent,
-  bordure grise fine, boutons hover orange): affiche le scope, le statut, la
-  mesure selectionnee avec valeur globale, et le top 5 du classement avec
-  delta. Le texte porte un text-shadow pour rester lisible sur la map.
 
 ## 0.1.19 (2026-05-17)
 
