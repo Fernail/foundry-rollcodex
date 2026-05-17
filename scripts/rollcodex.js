@@ -1767,8 +1767,6 @@ function renderFloatingPanel() {
     <section class="rollcodex-floating-panel__ranking">
       ${rankingHtml}
     </section>
-    <p class="rollcodex-floating-panel__status" title="${escapeHtml(status)}">${escapeHtml(statusLabel)}</p>
-    <p class="rollcodex-floating-panel__meta">Actif : ${escapeHtml(topParticipant)} · Auto ${autoSettings.enabled ? 'ON' : 'OFF'} · ${autoSettings.idleMinutes} min</p>
     <div class="rollcodex-floating-panel__buttons">
       <button type="button" data-rollcodex-floating-config>${connected ? 'Cfg' : 'Lier'}</button>
       <button type="button" data-rollcodex-floating-live>Journal</button>

@@ -867,20 +867,21 @@
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 6px;
   display: grid;
-  gap: 5px;
+  gap: 6px;
   grid-column: 2 / 3;
-  grid-row: 2 / span 5;
-  padding: 6px;
+  grid-row: 2 / span 4;
+  padding: 7px;
 }
 
 .rollcodex-floating-panel__ranking-head {
-  color: #e3d2b9;
-  font-size: 11px;
+  color: #f0cea4;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-bottom: 2px;
 }
 
 .rollcodex-floating-panel__ranking-select-wrap {
@@ -923,26 +924,31 @@
   align-items: center;
   display: grid;
   gap: 6px;
-  grid-template-columns: 14px minmax(0, 1fr) auto;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
   min-width: 0;
+  padding: 3px 0;
 }
 
 .rollcodex-floating-panel__ranking-rank {
-  color: #c79a4b;
+  color: #f0cea4;
   font-weight: 700;
   text-align: center;
+  font-size: 12px;
 }
 
 .rollcodex-floating-panel__ranking-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 500;
+  color: #f7efe1;
 }
 
 .rollcodex-floating-panel__ranking-value {
-  color: #f0cea4;
+  color: #c79a4b;
   font-weight: 700;
   text-align: right;
+  font-size: 13px;
 }
 
 .rollcodex-floating-panel__ranking-list li.is-unresolved .rollcodex-floating-panel__ranking-label {
