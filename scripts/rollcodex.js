@@ -1114,6 +1114,34 @@ function buildPairingStatusEndpoint(appUrl) {
   return new URL('/api/vtt-pairing-status', appUrl).toString();
 }
 
+function buildPairingStatusEndpointCandidates(appUrl, preferredEndpoint = '') {
+  const candidates = [];
+  const addCandidate = (value) => {
+    const normalized = normalizeString(value);
+    if (!normalized || candidates.includes(normalized)) return;
+    candidates.push(normalized);
+  };
+
+  addCandidate(preferredEndpoint);
+  addCandidate(buildPairingStatusEndpoint(appUrl));
+
+  try {
+    const url = new URL(appUrl);
+    const localHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+    if (localHosts.has(url.hostname.toLowerCase()) && (url.port === '5173' || url.port === '4173')) {
+      url.port = '3000';
+      url.pathname = '/api/vtt-pairing-status';
+      url.search = '';
+      url.hash = '';
+      addCandidate(url.toString());
+    }
+  } catch (_error) {
+    // ignore invalid fallback URL, on garde les endpoints deja resolus
+  }
+
+  return candidates;
+}
+
 async function fetchConnectionConfig(appUrl) {
   const response = await fetch(buildConnectionConfigUrl(appUrl), {
     method: 'GET',
@@ -2974,44 +3002,56 @@ class RollCodexConnectionApp extends FormApplication {
       return false;
     }
 
-    if (!pendingPairing.pairingStatusEndpoint) {
+    const appUrl = normalizeAppUrl(game.settings.get(MODULE_ID, SETTINGS.appUrl));
+    const endpointCandidates = buildPairingStatusEndpointCandidates(appUrl, pendingPairing.pairingStatusEndpoint);
+
+    if (!endpointCandidates.length) {
       if (silent) return false;
       throw new Error('API de statut RollCodex indisponible pour cette demande. Relancez la connexion depuis Foundry.');
     }
 
-    try {
-      const response = await fetch(pendingPairing.pairingStatusEndpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'text/plain;charset=UTF-8',
-        },
-        body: JSON.stringify({
-          provider: 'foundry',
-          connection_id: pendingPairing.connectionId,
-          connection_secret: pendingPairing.connectionSecret,
-          state: pendingPairing.state,
-        }),
-      });
-      const payload = await response.json().catch(() => ({}));
+    let lastError = null;
 
-      if (!response.ok) {
-        throw new Error(payload?.message || payload?.error || 'Statut RollCodex indisponible.');
-      }
+    for (const endpoint of endpointCandidates) {
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain;charset=UTF-8',
+          },
+          body: JSON.stringify({
+            provider: 'foundry',
+            connection_id: pendingPairing.connectionId,
+            connection_secret: pendingPairing.connectionSecret,
+            state: pendingPairing.state,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
 
-      if (payload?.status === 'pending') return false;
-      if (payload?.status === 'revoked') {
-        throw new Error('La connexion RollCodex a ete revoquee. Relancez une liaison depuis Foundry.');
-      }
-      if (payload?.status === 'connected' && payload?.type === MESSAGE_COMPLETE_TYPE) {
-        await this.completePairing(payload);
-        return true;
-      }
+        if (!response.ok) {
+          const error = new Error(payload?.message || payload?.error || 'Statut RollCodex indisponible.');
+          error.code = payload?.code || payload?.error || '';
+          lastError = error;
+          continue;
+        }
 
-      return false;
-    } catch (error) {
-      if (silent) return false;
-      throw error;
+        if (payload?.status === 'pending') return false;
+        if (payload?.status === 'revoked') {
+          throw new Error('La connexion RollCodex a ete revoquee. Relancez une liaison depuis Foundry.');
+        }
+        if (payload?.status === 'connected' && payload?.type === MESSAGE_COMPLETE_TYPE) {
+          await this.completePairing(payload);
+          return true;
+        }
+
+        return false;
+      } catch (error) {
+        lastError = error;
+      }
     }
+
+    if (silent) return false;
+    throw lastError || new Error('Statut RollCodex indisponible.');
   }
 
   async tryRecoverConfirmationFromClipboard({ silent = false } = {}) {
