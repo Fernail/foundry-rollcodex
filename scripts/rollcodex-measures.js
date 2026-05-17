@@ -184,6 +184,11 @@
     measuresState.messageMatches.clear();
   }
 
+  function resetMeasureContributions() {
+    measuresState.participantContributions.clear();
+    measuresState.messageMatches.clear();
+  }
+
   function getActiveMeasures() {
     const profile = globalThis.getCachedMappingProfile?.();
     if (!profile || profile.schema_version < 2) return [];
@@ -191,8 +196,10 @@
   }
 
   function recordMeasureContribution(messageId, participant_id, participant_label, measureId, contribution) {
-    measuresState.messageMatches.set(messageId, measuresState.messageMatches.get(messageId) || new Set());
-    measuresState.messageMatches.get(messageId).add(measureId);
+    const messageMatches = measuresState.messageMatches.get(messageId) || new Set();
+    if (messageMatches.has(measureId)) return;
+    messageMatches.add(measureId);
+    measuresState.messageMatches.set(messageId, messageMatches);
 
     const key = `${measureId}:${participant_id || 'unresolved'}`;
     if (!measuresState.participantContributions.has(key)) {
@@ -263,12 +270,18 @@
     const participantId = mapping?.target_id || null;
     const participantLabel = mapping?.target_label || message.speaker?.alias || 'Inconnu';
 
-    const event_type = 'generic';
+    const event_type = rollFigures.damageHint
+      ? 'damage'
+      : rollFigures.healHint
+        ? 'healing'
+        : rollFigures.count
+          ? 'roll'
+          : 'message';
     const action_name = message.flavor || 'Action';
     const roll_total = rollFigures.total || null;
     const roll_natural = rollFigures.nat20 > 0 ? 20 : null;
     const damage_total = rollFigures.damageHint || null;
-    const heal_total = null;
+    const heal_total = rollFigures.healHint || null;
     const speaker = message.speaker?.alias || '';
     const sub_type = '';
     const skill_name = '';
@@ -335,6 +348,18 @@
     };
   }
 
+  function rebuildFromMessages(messages) {
+    resetMeasureContributions();
+    (messages || []).forEach((message) => {
+      try {
+        processMessageForMeasures(message);
+      } catch (error) {
+        console.warn('[RollCodex Measures] History processing failed', error);
+      }
+    });
+    throttledRefreshLivePanels();
+  }
+
   Hooks.once('init', () => {
     game.settings.register('rollcodex', 'selectedMeasureId', {
       scope: 'client',
@@ -356,10 +381,16 @@
     });
 
     globalThis.RollCodexMeasures = {
+      get selectedMeasureId() {
+        return measuresState.selectedMeasureId || '';
+      },
       resetState: resetMeasuresState,
+      resetContributions: resetMeasureContributions,
       getActiveMeasures,
       getSelectedMeasureData,
       getMeasureMatchesForSnapshot,
+      processMessage: processMessageForMeasures,
+      rebuildFromMessages,
       selectMeasure: async (measureId) => {
         measuresState.selectedMeasureId = measureId || '';
         await game.settings.set('rollcodex', 'selectedMeasureId', measuresState.selectedMeasureId);
@@ -367,6 +398,10 @@
       },
     };
 
-    console.log('[RollCodex] Measures extension (v0.1.14) ready');
+    const initialMessages = globalThis.getRollCodexLiveBackfillMessages?.()
+      || Array.from(game.messages?.contents || []);
+    rebuildFromMessages(initialMessages);
+
+    console.log('[RollCodex] Measures extension ready');
   });
 })();

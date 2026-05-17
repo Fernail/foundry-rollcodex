@@ -1255,13 +1255,13 @@ function scheduleLiveMetricsRefresh() {
   }, LIVE_METRICS_REFRESH_MS);
 }
 
-function resetLiveMetricsState() {
-  liveMetricsState.startedAt = new Date().toISOString();
+function resetLiveMetricsState({ startedAt = new Date().toISOString(), scheduleRefresh = true } = {}) {
+  liveMetricsState.startedAt = startedAt;
   liveMetricsState.messageIds = new Set();
   liveMetricsState.participants = new Map();
   liveMetricsState.recentEvents = [];
   liveMetricsState.totals = createEmptyLiveMetricTotals();
-  scheduleLiveMetricsRefresh();
+  if (scheduleRefresh) scheduleLiveMetricsRefresh();
 }
 
 function recordLiveMetricsFromMessage(message) {
@@ -1807,15 +1807,18 @@ function canCurrentUserSendSnapshots() {
   return !primaryGmId || primaryGmId === String(game.user.id || '');
 }
 
-function collectChatMessagesSince(sinceMessageId) {
+function getChatMessagesSince(sinceMessageId = '') {
   const all = Array.from(game.messages?.contents || []);
   let startIndex = 0;
   if (sinceMessageId) {
     const idx = all.findIndex((message) => String(message.id || '') === String(sinceMessageId));
     if (idx >= 0) startIndex = idx + 1;
   }
+  return all.slice(startIndex);
+}
 
-  const slice = all.slice(startIndex);
+function collectChatMessagesSince(sinceMessageId) {
+  const slice = getChatMessagesSince(sinceMessageId);
   const messages = slice
     .map((message) => {
       const rawText = stripHtml(message.content || '');
@@ -1835,6 +1838,36 @@ function collectChatMessagesSince(sinceMessageId) {
   const lastInBatch = slice.length > 0 ? String(slice[slice.length - 1].id || '') : '';
   const lastMessageId = lastInBatch || sinceMessageId || '';
   return { messages, lastMessageId, lastInBatch };
+}
+
+function getLiveBackfillMessages() {
+  return getChatMessagesSince(getStoredLastMessageId());
+}
+
+function getFirstMessageTimestamp(messages) {
+  const firstMessage = Array.isArray(messages) ? messages[0] : null;
+  const parsed = firstMessage?.timestamp ? new Date(firstMessage.timestamp) : null;
+  return parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : new Date().toISOString();
+}
+
+function rebuildLiveMetricsFromChatHistory({ reset = true } = {}) {
+  if (!game.settings.get(MODULE_ID, SETTINGS.liveMetricsEnabled)) return 0;
+  const messages = getLiveBackfillMessages();
+  if (reset) {
+    resetLiveMetricsState({ startedAt: getFirstMessageTimestamp(messages), scheduleRefresh: false });
+  }
+  messages.forEach((message) => recordLiveMetricsFromMessage(message));
+  scheduleLiveMetricsRefresh();
+  return messages.length;
+}
+
+function rebuildLiveSessionFromChatHistory({ reset = true } = {}) {
+  const messages = getLiveBackfillMessages();
+  if (reset) resetLiveSessionState();
+  messages.forEach((message) => recordLiveObservation(message, { refresh: false }));
+  globalThis.RollCodexMeasures?.rebuildFromMessages?.(messages);
+  refreshLivePanels();
+  return messages.length;
 }
 
 function buildSnapshotPayload(connection, { mode = 'manual', reason = 'manual', sinceMessageId = '' } = {}) {
@@ -2418,6 +2451,7 @@ async function fetchMappingProfile({ force = false } = {}) {
         console.warn('[RollCodex] Mapping profile cache persistence failed', storageError);
       }
 
+      rebuildLiveSessionFromChatHistory({ reset: true });
       refreshLivePanels();
       return profile;
     } catch (error) {
@@ -2538,7 +2572,7 @@ function extractMessageObservations(message) {
   return observations;
 }
 
-function recordLiveObservation(message) {
+function recordLiveObservation(message, { refresh = true } = {}) {
   if (!message) return;
   const messageId = String(message.id || '');
   if (messageId && liveSessionState.observedMessageIds.has(messageId)) return;
@@ -2596,7 +2630,7 @@ function recordLiveObservation(message) {
     entry.damage_total += rollFigures.damageHint;
   });
 
-  refreshLivePanels();
+  if (refresh) refreshLivePanels();
 }
 
 function resetLiveSessionState() {
@@ -3239,11 +3273,16 @@ class RollCodexConnectionApp extends FormApplication {
     await saveConnectionFromMessage(data, pendingPairing.connectionSecret);
     await clearPendingPairing();
     await game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastError, '');
+    rebuildLiveMetricsFromChatHistory({ reset: true });
+    rebuildLiveSessionFromChatHistory({ reset: true });
     if (this.currentMessageHandler) {
       window.removeEventListener('message', this.currentMessageHandler);
       this.currentMessageHandler = null;
     }
     this.stopAutoRecovery();
+    fetchMappingProfile({ force: true }).catch((error) => {
+      console.warn('[RollCodex] Mapping profile fetch after pairing failed', error);
+    });
     ui.notifications.info('Monde Foundry connecte a RollCodex.');
     this.render(true);
   }
@@ -3500,6 +3539,7 @@ class RollCodexLivePanel extends FormApplication {
     });
     if (!confirmed) return;
     resetLiveSessionState();
+    globalThis.RollCodexMeasures?.resetContributions?.();
     this.render(true);
   }
 
@@ -3622,11 +3662,16 @@ Hooks.once('init', () => {
 Hooks.once('ready', async () => {
   registerLiveMetricsHooks();
   if (game.settings.get(MODULE_ID, SETTINGS.liveMetricsEnabled) && !liveMetricsState.startedAt) {
-    resetLiveMetricsState();
+    rebuildLiveMetricsFromChatHistory({ reset: true });
   }
   renderFloatingPanel();
 
   globalThis.refreshLivePanels = refreshLivePanels;
+  globalThis.getCachedMappingProfile = getCachedMappingProfile;
+  globalThis.resolveMessageActor = resolveMessageActor;
+  globalThis.extractRollFigures = extractRollFigures;
+  globalThis.resolveMappingFromProfile = resolveMappingFromProfile;
+  globalThis.getRollCodexLiveBackfillMessages = getLiveBackfillMessages;
 
   if (!game.user?.isGM) return;
   try {
@@ -3640,6 +3685,7 @@ Hooks.once('ready', async () => {
   registerAutoSnapshotHooks();
   registerLiveObservationHooks();
   getCachedMappingProfile();
+  rebuildLiveSessionFromChatHistory({ reset: true });
   const connection = getStoredConnection();
   if (!connection.connectionId) {
     ui.notifications.info('RollCodex est pret. Configurez la connexion dans les parametres du module.');
