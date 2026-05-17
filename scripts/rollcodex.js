@@ -1110,6 +1110,10 @@ function buildConnectionConfigUrl(appUrl) {
   return new URL('/api/vtt-connection-config', appUrl).toString();
 }
 
+function buildPairingStatusEndpoint(appUrl) {
+  return new URL('/api/vtt-pairing-status', appUrl).toString();
+}
+
 async function fetchConnectionConfig(appUrl) {
   const response = await fetch(buildConnectionConfigUrl(appUrl), {
     method: 'GET',
@@ -2855,14 +2859,16 @@ class RollCodexConnectionApp extends FormApplication {
       connectionConfig = await fetchConnectionConfig(appUrl);
     } catch (error) {
       console.warn('[RollCodex] Pairing status config unavailable', error);
-      ui.notifications.warn('API de statut RollCodex indisponible. Le bouton Recuperer reste disponible en secours.');
+      ui.notifications.warn('Configuration API RollCodex indisponible. Fallback applique pour le statut de liaison.');
     }
+
+    const fallbackPairingStatusEndpoint = buildPairingStatusEndpoint(appUrl);
 
     await savePendingPairing({
       connectionId,
       connectionSecret,
       state,
-      pairingStatusEndpoint: connectionConfig?.pairingStatusEndpoint || '',
+      pairingStatusEndpoint: connectionConfig?.pairingStatusEndpoint || fallbackPairingStatusEndpoint,
       pairingCode,
     });
     this.render(true);
@@ -3075,6 +3081,7 @@ class RollCodexConnectionApp extends FormApplication {
     if (!pastedValue) {
       const recovered = await this.tryCompletePendingPairing({ silent: false });
       if (recovered) return;
+      throw new Error('Aucune confirmation automatique disponible. Relancez la liaison ou collez la confirmation RollCodex.');
     }
 
     const payload = parseConfirmationPayload(pastedValue);
