@@ -402,6 +402,13 @@
   min-width: 480px;
 }
 
+.rollcodex-live-panel__profile dl > div {
+  background: var(--rcx-surface-soft);
+  border: 1px solid var(--rcx-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
 .rollcodex-live,
 .rollcodex-mapping {
   gap: 14px;
@@ -740,6 +747,9 @@
 }
 
 .rollcodex-floating-panel.is-collapsed {
+  background: rgba(16, 12, 10, 0.54);
+  backdrop-filter: blur(2px);
+  border-color: rgba(207, 154, 76, 0.44);
   grid-template-columns: 1fr;
   width: 248px;
 }
@@ -749,6 +759,30 @@
   align-items: center;
   display: flex;
   gap: 8px;
+}
+
+.rollcodex-floating-panel__compact {
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 4px;
+}
+
+.rollcodex-floating-panel__compact-ranking {
+  background: rgba(0, 0, 0, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+}
+
+.rollcodex-floating-panel__compact-ranking .rollcodex-floating-panel__ranking-head {
+  font-size: 10px;
+}
+
+.rollcodex-floating-panel__compact-ranking .rollcodex-floating-panel__ranking-list li {
+  grid-template-columns: 12px minmax(0, 1fr) auto;
 }
 
 .rollcodex-floating-panel__header {

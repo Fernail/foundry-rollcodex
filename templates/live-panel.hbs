@@ -1,8 +1,8 @@
 <form class="rollcodex-live-panel" autocomplete="off">
   <header class="rollcodex-live-panel__header">
     <div>
-      <p class="rollcodex-live-panel__eyebrow">RollCodex Live</p>
-      <h2>Kikimeter de session</h2>
+      <p class="rollcodex-live-panel__eyebrow">RollCodex</p>
+      <h2>Tableau live de session</h2>
     </div>
     <span class="rollcodex-live-panel__status {{#if profileAvailable}}is-ready{{else}}is-idle{{/if}}">
       {{#if profileAvailable}}Profil pret{{else}}Profil indisponible{{/if}}
@@ -29,6 +29,18 @@
             <dt>Registre</dt>
             <dd>{{workspaceLabel}}</dd>
           </div>
+          {{#if campaignLabel}}
+            <div>
+              <dt>Campagne</dt>
+              <dd>{{campaignLabel}}</dd>
+            </div>
+          {{/if}}
+          {{#if tableLabel}}
+            <div>
+              <dt>Table</dt>
+              <dd>{{tableLabel}}</dd>
+            </div>
+          {{/if}}
           <div>
             <dt>Systeme</dt>
             <dd>{{systemLabel}}</dd>
@@ -50,7 +62,7 @@
 
     {{#if hasMeasures}}
       <section class="rollcodex-live-panel__section">
-        <label for="measure-selector">Affichage</label>
+        <label for="measure-selector">Classement affiche</label>
         <select id="measure-selector" class="rollcodex-select" data-action="select-measure">
           <option value="">Compteurs globaux</option>
           {{#each availableMeasures}}
@@ -80,7 +92,7 @@
     {{#if showMeasureRanking}}
       <section class="rollcodex-live-panel__section rollcodex-live-panel__measure-ranking">
         <h3>
-          <span style="color: {{selectedMeasure.color}}">{{selectedMeasure.icon}} {{selectedMeasure.name}}</span>
+          <span style="color: {{selectedMeasure.color}}">Classement - {{selectedMeasure.icon}} {{selectedMeasure.name}}</span>
         </h3>
         {{#if sessionStartedAtLabel}}
           <p class="rollcodex-live-panel__meta">Demarree {{sessionStartedAtLabel}}</p>
@@ -139,7 +151,7 @@
         Recharger le profil
       </button>
       <button type="button" class="rollcodex-button rollcodex-button--primary" data-action="send-snapshot" {{#unless isGmPrimary}}disabled{{/unless}}>
-        Envoyer snapshot maintenant
+        Envoyer snapshot
       </button>
       <button type="button" class="rollcodex-button rollcodex-button--primary" data-action="end-session" {{#unless isGmPrimary}}disabled{{/unless}}>
         Terminer la session

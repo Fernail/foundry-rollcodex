@@ -1638,7 +1638,7 @@ function getFloatingRankingSummary(liveMetrics) {
         : selectedMeasure.name,
       selectedMeasureId,
       availableMeasures,
-      rows: selectedRanking.slice(0, 3).map((entry, index) => ({
+      rows: selectedRanking.slice(0, 6).map((entry, index) => ({
         rank: index + 1,
         label: entry.participant_label || 'Non resolu',
         value: entry.valueLabel || formatMetricNumber(entry.value),
@@ -1649,7 +1649,7 @@ function getFloatingRankingSummary(liveMetrics) {
   }
 
   const participants = Array.isArray(liveMetrics?.participants) ? liveMetrics.participants : [];
-  const rows = participants.slice(0, 3).map((participant, index) => ({
+  const rows = participants.slice(0, 6).map((participant, index) => ({
     rank: index + 1,
     label: participant.speaker || 'Inconnu',
     value: `${participant.rollsLabel} jets`,
@@ -1737,16 +1737,18 @@ function renderFloatingPanel() {
   panel.style.top = `${Math.max(8, settings.top)}px`;
 
   if (settings.collapsed) {
-    const collapsedValue = rankingSummary.rows[0]?.value || '-';
     panel.innerHTML = `
       <div class="rollcodex-floating-panel__compact">
         <button type="button" class="rollcodex-floating-panel__drag" data-rollcodex-floating-drag title="Deplacer"><i class="fas fa-grip-lines"></i></button>
         <div class="rollcodex-floating-panel__compact-body">
-          <strong>RollCodex</strong>
-          <span>${escapeHtml(topParticipant)} · ${escapeHtml(collapsedValue)}</span>
+          <strong>Classement live</strong>
+          <span>${escapeHtml(target)}</span>
         </div>
         <button type="button" class="rollcodex-floating-panel__action" data-rollcodex-floating-collapse title="Ouvrir">Ouvrir</button>
       </div>
+      <section class="rollcodex-floating-panel__compact-ranking">
+        ${rankingHtml}
+      </section>
     `;
     bindFloatingPanelEvents(panel);
     return;
@@ -2683,7 +2685,7 @@ class RollCodexLiveMetricsApp extends FormApplication {
   static get defaultOptions() {
     return foundry.utils.mergeObject(super.defaultOptions, {
       id: 'rollcodex-live-metrics',
-      title: 'RollCodex - Metriques live',
+      title: 'RollCodex - Classement live',
       template: `modules/${MODULE_ID}/templates/live-metrics.hbs`,
       width: 620,
       closeOnSubmit: false,
@@ -2716,13 +2718,13 @@ class RollCodexLiveMetricsApp extends FormApplication {
   async toggleLiveMetrics(enabled) {
     await game.settings.set(MODULE_ID, SETTINGS.liveMetricsEnabled, Boolean(enabled));
     if (enabled && !liveMetricsState.startedAt) resetLiveMetricsState();
-    ui.notifications.info(enabled ? 'Metriques live RollCodex activees.' : 'Metriques live RollCodex desactivees.');
+    ui.notifications.info(enabled ? 'Classement live RollCodex active.' : 'Classement live RollCodex desactive.');
     refreshLiveMetricsApps();
   }
 
   resetLiveMetrics() {
     resetLiveMetricsState();
-    ui.notifications.info('Metriques live RollCodex remises a zero.');
+    ui.notifications.info('Classement live RollCodex remis a zero.');
   }
 
   close(options) {
@@ -3399,7 +3401,7 @@ class RollCodexLivePanel extends FormApplication {
   static get defaultOptions() {
     return foundry.utils.mergeObject(super.defaultOptions, {
       id: 'rollcodex-live-panel',
-      title: 'RollCodex Live (kikimeter)',
+      title: 'RollCodex - Tableau live',
       template: `modules/${MODULE_ID}/templates/live-panel.hbs`,
       width: 520,
       height: 'auto',
@@ -3447,6 +3449,8 @@ class RollCodexLivePanel extends FormApplication {
       connected,
       isGmPrimary,
       workspaceLabel: connection.workspaceLabel || '',
+      campaignLabel: connection.campaignLabel || '',
+      tableLabel: connection.tableLabel || '',
       systemLabel: connection.systemLabel || '',
       mappingProfileEndpoint: connection.mappingProfileEndpoint || '',
       profileAvailable: Boolean(profile),
@@ -3588,8 +3592,8 @@ Hooks.once('init', () => {
     config: true,
     type: Boolean,
     default: true,
-    name: 'Metriques live RollCodex',
-    hint: 'Affiche un kikimeter local dans Foundry. Ces metriques ne sont pas envoyees a RollCodex.',
+    name: 'Classement live local RollCodex',
+    hint: 'Affiche un tableau live local dans Foundry. Ces metriques ne sont pas envoyees a RollCodex.',
   });
 
   registerSetting(SETTINGS.floatingPanelCollapsed, {
@@ -3639,17 +3643,17 @@ Hooks.once('init', () => {
   });
 
   game.settings.registerMenu(MODULE_ID, 'livePanelMenu', {
-    name: 'RollCodex Live (kikimeter)',
+    name: 'Tableau live RollCodex',
     label: 'Ouvrir le panneau live',
-    hint: 'Compteurs de session pre-validation, profil de mapping et envoi de capture avec hints.',
+    hint: 'Pilotage live de session, profil de mapping et envoi de capture avec hints.',
     icon: 'fas fa-gauge-high',
     type: RollCodexLivePanel,
     restricted: true,
   });
 
   game.settings.registerMenu(MODULE_ID, 'liveMetricsMenu', {
-    name: 'Metriques live RollCodex',
-    label: 'Ouvrir le kikimeter',
+    name: 'Classement live local RollCodex',
+    label: 'Ouvrir le classement live',
     hint: 'Afficher les metriques locales calculees depuis les messages Foundry de cette session.',
     icon: 'fas fa-chart-bar',
     type: RollCodexLiveMetricsApp,
