@@ -8,11 +8,15 @@
  * Copie inline de src/lib/vtt/measureMatcher.js (source de verite pour les tests).
  * Les signatures doivent rester synchronisees.
  *
- * @version 0.1.24 - Phase 1b (2026-05-17)
+ * @version 0.1.25 - Phase 1b (2026-05-17)
  */
 
 (() => {
   'use strict';
+
+  const LIVE_ROLL_EVENT_TYPES = new Set(['roll', 'attack', 'spell_attack', 'saving_throw', 'save', 'initiative', 'skill_check', 'ability_check', 'check']);
+  const LIVE_DAMAGE_EVENT_TYPES = new Set(['damage', 'spell_damage']);
+  const LIVE_HEALING_EVENT_TYPES = new Set(['healing', 'heal']);
 
   // ==========================================================================
   // INLINE: src/lib/vtt/measureMatcher.js (source de verite des tests)
@@ -168,76 +172,538 @@
     return matches;
   }
 
+  function normalizeMetricKey(value) {
+    return normalizeString(value)
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .replace(/\s+/g, '-');
+  }
+
+  function normalizeMetricArray(value) {
+    return Array.isArray(value)
+      ? value.map((item) => normalizeString(item).toLowerCase()).filter(Boolean)
+      : [];
+  }
+
+  function normalizeProfileMetricResult(result) {
+    if (!result || typeof result !== 'object') return null;
+    const value = normalizeNumber(result.value);
+    const label = normalizeString(result.label || result.value_label || result.valueLabel);
+    const count = normalizeNumber(result.count);
+    if (value === null && !label) return null;
+    return {
+      value: value ?? 0,
+      label: label || String(value ?? 0),
+      count,
+    };
+  }
+
+  function buildMetricTargetKey(targetKind, targetId) {
+    const normalizedId = normalizeString(targetId);
+    if (!normalizedId) return '';
+    const normalizedKind = normalizeString(targetKind || 'target').toLowerCase() || 'target';
+    return `${normalizedKind}:${normalizedId}`;
+  }
+
+  function normalizeProfileMetricRankingEntry(entry, index) {
+    if (!entry || typeof entry !== 'object') return null;
+    const value = normalizeNumber(entry.value);
+    const label = normalizeString(entry.label || entry.target_label || entry.name);
+    if (value === null || !label) return null;
+    const valueLabel = normalizeString(entry.value_label || entry.valueLabel || entry.label_value);
+    const targetKind = normalizeString(entry.target_kind || entry.targetKind || entry.type || 'character').toLowerCase();
+    const targetId = normalizeString(entry.target_id || entry.targetId || entry.id);
+    return {
+      key: targetId ? buildMetricTargetKey(targetKind, targetId) : normalizeString(entry.key || `ranking-${index}`),
+      label,
+      sourceLabel: normalizeString(entry.source_label || entry.sourceLabel || entry.detail || label),
+      mapped: true,
+      target_kind: targetKind,
+      target_id: targetId,
+      value,
+      value_label: valueLabel || String(value),
+      count: normalizeNumber(entry.count),
+    };
+  }
+
+  function normalizeProfileMetric(metric) {
+    const id = normalizeString(metric?.id || metric?.key || metric?.name);
+    if (!id || metric?.live_supported === false) return null;
+    const aggregation = normalizeString(metric?.aggregation || 'count').toLowerCase();
+    const field = normalizeString(metric?.field || '').toLowerCase();
+    const percentField = normalizeString(metric?.percent_field || metric?.percentField || metric?.field || '').toLowerCase();
+    const ranking = Array.isArray(metric?.ranking)
+      ? metric.ranking.map(normalizeProfileMetricRankingEntry).filter(Boolean)
+      : [];
+
+    return {
+      ...metric,
+      id,
+      name: normalizeString(metric?.name || metric?.label || id),
+      label: normalizeString(metric?.name || metric?.label || id),
+      aggregation,
+      field,
+      percent_field: percentField,
+      percentField,
+      percent_operator: normalizeString(metric?.percent_operator || metric?.percentOperator || 'eq').toLowerCase(),
+      percentOperator: normalizeString(metric?.percent_operator || metric?.percentOperator || 'eq').toLowerCase(),
+      percent_value: metric?.percent_value ?? metric?.percentValue ?? null,
+      percentValue: metric?.percent_value ?? metric?.percentValue ?? null,
+      target_role: normalizeString(metric?.target_role || metric?.targetRole || 'all').toLowerCase() || 'all',
+      targetRole: normalizeString(metric?.target_role || metric?.targetRole || 'all').toLowerCase() || 'all',
+      filter_event_type: normalizeMetricArray(metric?.filter_event_type || metric?.filterEventType),
+      filterEventType: normalizeMetricArray(metric?.filter_event_type || metric?.filterEventType),
+      filter_sub_type: normalizeString(metric?.filter_sub_type || metric?.filterSubType).toLowerCase(),
+      filterSubType: normalizeString(metric?.filter_sub_type || metric?.filterSubType).toLowerCase(),
+      filter_skill_name: normalizeString(metric?.filter_skill_name || metric?.filterSkillName).toLowerCase(),
+      filterSkillName: normalizeString(metric?.filter_skill_name || metric?.filterSkillName).toLowerCase(),
+      filter_action_name: normalizeString(metric?.filter_action_name || metric?.filterActionName).toLowerCase(),
+      filterActionName: normalizeString(metric?.filter_action_name || metric?.filterActionName).toLowerCase(),
+      filter_player_id: normalizeString(metric?.filter_player_id || metric?.filterPlayerId),
+      sortOrder: Number(metric?.sort_order ?? metric?.sortOrder) || 0,
+      result: normalizeProfileMetricResult(metric?.result),
+      ranking,
+      rankingDimension: normalizeString(metric?.ranking_dimension || metric?.rankingDimension),
+      scopeHint: normalizeString(metric?.scope_hint || metric?.scopeHint),
+    };
+  }
+
+  function getProfileMetrics(profile) {
+    const rawMetrics = Array.isArray(profile?.metrics)
+      ? profile.metrics
+      : Array.isArray(profile?.measures)
+        ? profile.measures
+        : [];
+    return rawMetrics
+      .map(normalizeProfileMetric)
+      .filter(Boolean)
+      .sort((left, right) => left.sortOrder - right.sortOrder || left.label.localeCompare(right.label));
+  }
+
+  function getSelectedProfileMetric(metrics, selectedMetricId) {
+    const normalizedId = normalizeString(selectedMetricId);
+    return metrics.find((metric) => metric.id === normalizedId) || metrics[0] || null;
+  }
+
+  function getMetricProfileStatus(profile) {
+    if (!profile?.schema_version) return 'Profil RollCodex indisponible';
+    const metricCount = Array.isArray(profile.metrics)
+      ? profile.metrics.length
+      : Array.isArray(profile.measures)
+        ? profile.measures.length
+        : 0;
+    if (!metricCount) return 'Aucune mesure dans le registre cible';
+    if (!getProfileMetrics(profile).length) return 'Aucune mesure compatible live dans le registre';
+    return '';
+  }
+
+  function isRollLikeEvent(event) {
+    const actionType = normalizeString(event?.event_type || event?.action_type_hint).toLowerCase();
+    return event?.roll_total != null
+      || event?.roll_total_hint != null
+      || event?.roll_natural != null
+      || event?.roll_natural_hint != null
+      || LIVE_ROLL_EVENT_TYPES.has(actionType);
+  }
+
+  function eventTypeMatchesMetricFilter(eventType, event, filter) {
+    if (filter === eventType) return true;
+    if (filter === 'roll') return isRollLikeEvent(event);
+    if (filter === 'saving_throw' && eventType === 'save') return true;
+    if (filter === 'save' && eventType === 'saving_throw') return true;
+    if (filter === 'skill_check' && eventType === 'check') return true;
+    if (filter === 'ability_check' && eventType === 'check') return true;
+    if (filter === 'spell_attack' && eventType === 'spell') return isRollLikeEvent(event);
+    if (LIVE_DAMAGE_EVENT_TYPES.has(filter)) {
+      return LIVE_DAMAGE_EVENT_TYPES.has(eventType)
+        || ((eventType === 'message' || eventType === 'roll' || eventType === 'attack' || eventType === 'spell_attack')
+          && event?.damage_total != null);
+    }
+    if (LIVE_HEALING_EVENT_TYPES.has(filter)) {
+      return LIVE_HEALING_EVENT_TYPES.has(eventType)
+        || ((eventType === 'message' || eventType === 'roll') && event?.heal_total != null);
+    }
+    return false;
+  }
+
+  function eventMatchesMetricTargetRole(event, metric) {
+    const targetRole = normalizeString(metric?.target_role || metric?.targetRole || 'all').toLowerCase() || 'all';
+    if (targetRole === 'all') return true;
+    if (targetRole === 'gm_only') return event.route_to_gm === true;
+    if (targetRole === 'players_only') return event.route_to_gm !== true;
+    if (targetRole === 'npcs_only') return event.actor_kind && event.actor_kind !== 'pc';
+    return true;
+  }
+
+  function messageMatchesMetricFilter(event, metric) {
+    if (!eventMatchesMetricTargetRole(event, metric)) return false;
+
+    const filters = metric.filterEventType || metric.filter_event_type || [];
+    const actionType = normalizeString(event?.event_type || event?.action_type_hint || 'message').toLowerCase();
+    const matchesEventType = !filters.length || filters.some((filter) => eventTypeMatchesMetricFilter(actionType, event, filter));
+    if (!matchesEventType) return false;
+
+    const metricSubType = normalizeString(metric.filterSubType || metric.filter_sub_type).toLowerCase();
+    if (metricSubType && normalizeString(event?.sub_type || event?.sub_type_hint).toLowerCase() !== metricSubType) return false;
+
+    const metricSkillName = normalizeString(metric.filterSkillName || metric.filter_skill_name).toLowerCase();
+    if (metricSkillName && normalizeString(event?.skill_name || event?.skill_name_hint).toLowerCase() !== metricSkillName) return false;
+
+    const metricActionName = normalizeString(metric.filterActionName || metric.filter_action_name).toLowerCase();
+    if (metricActionName) {
+      const actionName = normalizeString(event?.action_name || event?.action_name_hint).toLowerCase();
+      if (!actionName || !actionName.includes(metricActionName)) return false;
+    }
+
+    const filterPlayerId = normalizeString(metric.filter_player_id || metric.filterPlayerId);
+    if (filterPlayerId && normalizeString(event?.player_id) !== filterPlayerId) return false;
+
+    return true;
+  }
+
+  function getMetricFieldValue(event, field) {
+    const normalizedField = normalizeString(field).toLowerCase();
+    if (normalizedField === 'damage_total') return normalizeNumber(event?.damage_total ?? event?.damage_total_hint);
+    if (normalizedField === 'heal_total') return normalizeNumber(event?.heal_total ?? event?.heal_total_hint);
+    if (normalizedField === 'roll_natural') return normalizeNumber(event?.roll_natural ?? event?.roll_natural_hint);
+    if (normalizedField === 'modifier') return normalizeNumber(event?.modifier);
+    if (normalizedField && Object.prototype.hasOwnProperty.call(event || {}, normalizedField)) {
+      return normalizeNumber(event[normalizedField]);
+    }
+    return normalizeNumber(event?.roll_total ?? event?.roll_total_hint);
+  }
+
+  function compareMetricPercent(value, metric) {
+    const expected = normalizeNumber(metric.percentValue ?? metric.percent_value);
+    if (value === null || expected === null) return false;
+    const operator = normalizeString(metric.percentOperator || metric.percent_operator || 'eq').toLowerCase();
+    if (operator === 'gt') return value > expected;
+    if (operator === 'gte') return value >= expected;
+    if (operator === 'lt') return value < expected;
+    if (operator === 'lte') return value <= expected;
+    if (operator === 'ne') return value !== expected;
+    return value === expected;
+  }
+
+  function addMetricContribution(bucket, metric, event) {
+    const aggregation = metric.aggregation || 'count';
+    if (aggregation === 'percent_critical') {
+      const hasCritFlag = event.is_critical === true || event.is_critical_hint === true;
+      if (!isRollLikeEvent(event) && !hasCritFlag) return false;
+      bucket.denominator += 1;
+      if (event.roll_natural === 20 || event.roll_natural_hint === 20 || hasCritFlag) bucket.numerator += 1;
+      return true;
+    }
+    if (aggregation === 'percent_fumble') {
+      const hasFumbleFlag = event.is_fumble === true || event.is_fumble_hint === true;
+      if (!isRollLikeEvent(event) && !hasFumbleFlag) return false;
+      bucket.denominator += 1;
+      if (event.roll_natural === 1 || event.roll_natural_hint === 1 || hasFumbleFlag) bucket.numerator += 1;
+      return true;
+    }
+    if (aggregation === 'percent') {
+      const value = getMetricFieldValue(event, metric.percentField || metric.percent_field || metric.field);
+      if (value === null) return false;
+      bucket.denominator += 1;
+      if (compareMetricPercent(value, metric)) bucket.numerator += 1;
+      return true;
+    }
+    if (aggregation === 'avg' || aggregation === 'average' || aggregation === 'mean') {
+      const value = getMetricFieldValue(event, metric.field);
+      if (value === null) return false;
+      bucket.sum += value;
+      bucket.count += 1;
+      return true;
+    }
+    if (aggregation === 'sum') {
+      const value = getMetricFieldValue(event, metric.field);
+      if (value === null) return false;
+      bucket.sum += value;
+      bucket.count += 1;
+      return true;
+    }
+    bucket.count += 1;
+    return true;
+  }
+
+  function formatMetricValue(value, metric) {
+    if (['percent', 'percent_critical', 'percent_fumble'].includes(metric?.aggregation)) {
+      return `${Math.round(value * 10) / 10}%`;
+    }
+    if (['avg', 'average', 'mean'].includes(metric?.aggregation)) {
+      return String(Math.round(value * 10) / 10);
+    }
+    return String(Math.round(value));
+  }
+
+  function metricAggregationFamily(metric) {
+    const aggregation = metric?.aggregation || 'count';
+    const isPercent = ['percent', 'percent_critical', 'percent_fumble'].includes(aggregation);
+    const isAverage = ['avg', 'average', 'mean'].includes(aggregation);
+    return {
+      aggregation,
+      isPercent,
+      isAverage,
+      isAdditive: !isPercent && !isAverage,
+    };
+  }
+
+  function bucketValueForMetric(bucket, metric) {
+    const family = metricAggregationFamily(metric);
+    if (family.isPercent) return bucket.denominator ? (bucket.numerator / bucket.denominator) * 100 : 0;
+    if (family.isAverage) return bucket.count ? bucket.sum / bucket.count : 0;
+    if (family.aggregation === 'sum') return bucket.sum;
+    return bucket.count;
+  }
+
+  function mergeBaselineAndLiveMetric(metric, family, baselineValue, baselineCount, liveStats) {
+    const safeBaselineValue = Number(baselineValue) || 0;
+    const safeBaselineCount = Number(baselineCount) || 0;
+    if (family.isAdditive) {
+      const liveValue = bucketValueForMetric(liveStats, metric);
+      return {
+        value: safeBaselineValue + liveValue,
+        delta: liveValue,
+        count: safeBaselineCount + (Number(liveStats?.messages) || Number(liveStats?.count) || 0),
+      };
+    }
+
+    if (family.isAverage) {
+      const liveCount = Number(liveStats?.count) || 0;
+      if (liveCount <= 0) return { value: safeBaselineValue, delta: 0, count: safeBaselineCount };
+      const totalCount = safeBaselineCount + liveCount;
+      const value = totalCount > 0
+        ? ((safeBaselineValue * safeBaselineCount) + (Number(liveStats?.sum) || 0)) / totalCount
+        : bucketValueForMetric(liveStats, metric);
+      return { value, delta: value - safeBaselineValue, count: totalCount };
+    }
+
+    if (family.isPercent) {
+      const liveDenominator = Number(liveStats?.denominator) || 0;
+      if (liveDenominator <= 0) return { value: safeBaselineValue, delta: 0, count: safeBaselineCount };
+      const totalDenominator = safeBaselineCount + liveDenominator;
+      const baselineNumerator = safeBaselineCount > 0 ? (safeBaselineValue / 100) * safeBaselineCount : 0;
+      const value = totalDenominator > 0
+        ? ((baselineNumerator + (Number(liveStats?.numerator) || 0)) / totalDenominator) * 100
+        : bucketValueForMetric(liveStats, metric);
+      return { value, delta: value - safeBaselineValue, count: totalDenominator };
+    }
+
+    const liveValue = bucketValueForMetric(liveStats, metric);
+    return {
+      value: safeBaselineValue + liveValue,
+      delta: liveValue,
+      count: safeBaselineCount + (Number(liveStats?.messages) || Number(liveStats?.count) || 0),
+    };
+  }
+
   // ==========================================================================
   // Extension RollCodex - state mesures + hooks
   // ==========================================================================
 
   const measuresState = {
     selectedMeasureId: null,
-    participantContributions: new Map(),
+    liveEvents: [],
+    liveEventIds: new Set(),
     messageMatches: new Map(),
   };
 
   function resetMeasuresState() {
     measuresState.selectedMeasureId = null;
-    measuresState.participantContributions.clear();
+    measuresState.liveEvents = [];
+    measuresState.liveEventIds.clear();
     measuresState.messageMatches.clear();
   }
 
   function resetMeasureContributions() {
-    measuresState.participantContributions.clear();
+    measuresState.liveEvents = [];
+    measuresState.liveEventIds.clear();
     measuresState.messageMatches.clear();
   }
 
   function getActiveMeasures() {
     const profile = globalThis.getCachedMappingProfile?.();
     if (!profile || profile.schema_version < 2) return [];
-    return Array.isArray(profile.measures) ? profile.measures : [];
+    return getProfileMetrics(profile);
   }
 
-  function recordMeasureContribution(messageId, participant_id, participant_label, measureId, contribution) {
+  function recordMeasureMatch(messageId, measureId) {
     const messageMatches = measuresState.messageMatches.get(messageId) || new Set();
     if (messageMatches.has(measureId)) return;
     messageMatches.add(measureId);
     measuresState.messageMatches.set(messageId, messageMatches);
-
-    const key = `${measureId}:${participant_id || 'unresolved'}`;
-    if (!measuresState.participantContributions.has(key)) {
-      measuresState.participantContributions.set(key, {
-        measureId,
-        participant_id,
-        participant_label,
-        contributions: [],
-      });
-    }
-
-    measuresState.participantContributions.get(key).contributions.push(contribution);
   }
 
-  function buildMeasureRanking(measureId, measure) {
-    const ranking = [];
-    const aggregation = normalizeString(measure.aggregation);
+  function getGameUsers() {
+    return Array.from(game.users?.contents || game.users || []);
+  }
 
-    for (const [key, data] of measuresState.participantContributions.entries()) {
-      if (!key.startsWith(`${measureId}:`)) continue;
+  function getCurrentGmUser() {
+    const users = getGameUsers();
+    return users.find((user) => user?.active && user?.isGM)
+      || users.find((user) => user?.isGM)
+      || (game.user?.isGM ? game.user : null);
+  }
 
-      const aggregatedValue = aggregateContributions(data.contributions, aggregation);
-      ranking.push({
-        participant_id: data.participant_id || null,
-        participant_label: data.participant_label || 'Non resolu',
-        value: aggregatedValue,
-        valueLabel: formatMeasureValue(aggregatedValue, measure),
-        resolved: Boolean(data.participant_id),
+  function resolveMessageUser(message) {
+    const rawUser = message?.user || message?.userId || message?.author;
+    if (!rawUser) return null;
+    if (typeof rawUser === 'object') return rawUser;
+    return game.users?.get?.(rawUser) || getGameUsers().find((user) => String(user.id) === String(rawUser)) || null;
+  }
+
+  function findProfileMapping(profile, sourceKind, sourceKey) {
+    const direct = globalThis.resolveMappingFromProfile?.(sourceKind, sourceKey);
+    if (direct) return direct;
+    const wantedKind = normalizeString(sourceKind).toLowerCase();
+    const wantedKey = normalizeString(sourceKey).toLowerCase();
+    if (!wantedKind || !wantedKey) return null;
+    const mappings = Array.isArray(profile?.mappings) ? profile.mappings : [];
+    return mappings.find((mapping) => {
+      return normalizeString(mapping?.source_kind).toLowerCase() === wantedKind
+        && normalizeString(mapping?.source_key).toLowerCase() === wantedKey;
+    }) || null;
+  }
+
+  function getActorSourceKey(actor) {
+    return actor?.uuid || actor?.id || '';
+  }
+
+  function getPcMetricBucket(profile, { actor, speaker, mapping }) {
+    const targetId = normalizeString(mapping?.target_id);
+    const targetKind = normalizeString(mapping?.target_kind || 'character').toLowerCase();
+    const label = normalizeString(mapping?.target_label || actor?.name || speaker || 'Personnage');
+    const actorId = normalizeString(actor?.id);
+    return {
+      key: targetId ? buildMetricTargetKey(targetKind || 'target', targetId) : `actor:${actorId || normalizeMetricKey(label || speaker || 'pj')}`,
+      label,
+      sourceLabel: normalizeString(speaker || actor?.name || label),
+      mapped: Boolean(targetId),
+      target_kind: targetKind || 'character',
+      target_id: targetId || actorId || '',
+      participant_id: targetId || actorId || '',
+      participant_label: label,
+      route_to_gm: false,
+    };
+  }
+
+  function getGmMetricBucket(profile, { speaker, user }) {
+    const gmUser = getCurrentGmUser() || user || null;
+    const gmName = normalizeString(gmUser?.name || game.user?.name || 'GM');
+    const gmMapping = findProfileMapping(profile, 'user', gmUser?.id)
+      || findProfileMapping(profile, 'speaker', gmName);
+    const targetId = normalizeString(gmMapping?.target_id || gmUser?.id || 'gm');
+    const targetKind = normalizeString(gmMapping?.target_kind || 'gm').toLowerCase();
+    const label = normalizeString(gmMapping?.target_label || gmName || 'GM');
+    return {
+      key: targetId ? buildMetricTargetKey(targetKind || 'gm', targetId) : `gm:${normalizeMetricKey(label || 'gm')}`,
+      label,
+      sourceLabel: normalizeString(speaker || label),
+      mapped: Boolean(gmMapping?.target_id || gmUser?.id),
+      target_kind: targetKind || 'gm',
+      target_id: targetId,
+      participant_id: targetId,
+      participant_label: label,
+      route_to_gm: true,
+    };
+  }
+
+  function getMetricBucket(profile, event) {
+    if (event.route_to_gm) {
+      return getGmMetricBucket(profile, {
+        speaker: event.original_speaker || event.speaker,
+        user: event.user,
       });
     }
+    return {
+      key: event.bucket_key,
+      label: event.participant_label,
+      sourceLabel: event.source_label || event.original_speaker || event.speaker,
+      mapped: event.mapped !== false,
+      target_kind: event.target_kind,
+      target_id: event.target_id,
+      participant_id: event.participant_id,
+      participant_label: event.participant_label,
+      route_to_gm: false,
+    };
+  }
 
-    ranking.sort((a, b) => {
-      if (aggregation === 'avg' && a.value !== b.value) return b.value - a.value;
-      if (aggregation !== 'avg' && a.value !== b.value) return b.value - a.value;
-      return a.participant_label.localeCompare(b.participant_label);
-    });
+  function normalizeFoundryEventType(rollFigures) {
+    const actionType = normalizeString(rollFigures?.actionType).toLowerCase();
+    if (actionType && actionType !== 'auto' && actionType !== 'other') return actionType;
+    if (rollFigures?.damageHint) return 'damage';
+    if (rollFigures?.healHint) return 'healing';
+    if (rollFigures?.count) return 'roll';
+    return 'message';
+  }
 
-    return ranking.slice(0, 10);
+  function buildLiveEventFromMessage(message, profile) {
+    const messageId = String(message.id || message._id || '');
+    if (!messageId || measuresState.liveEventIds.has(messageId)) return null;
+
+    const actor = globalThis.resolveMessageActor?.(message);
+    const user = resolveMessageUser(message);
+    const rollFigures = globalThis.extractRollFigures?.(message);
+    if (!rollFigures) return null;
+
+    const actorKind = normalizeString(
+      actor ? globalThis.inferRollCodexActorKind?.(actor) : '',
+    ).toLowerCase();
+    const isPlayerCharacter = actorKind === 'pc';
+    const speaker = normalizeString(message.speaker?.alias || actor?.name || user?.name || 'Foundry');
+    const sourceKey = getActorSourceKey(actor) || speaker;
+    const mapping = isPlayerCharacter && sourceKey ? findProfileMapping(profile, 'actor', sourceKey) : null;
+    const bucket = isPlayerCharacter
+      ? getPcMetricBucket(profile, { actor, speaker, mapping })
+      : getGmMetricBucket(profile, { speaker, user });
+    const eventType = normalizeFoundryEventType(rollFigures);
+    const actionName = normalizeString(rollFigures.actionName || message.flavor || 'Action');
+    const rollNatural = normalizeNumber(rollFigures.rollNatural) ?? (rollFigures.nat20 > 0 ? 20 : null);
+
+    return {
+      id: messageId,
+      message_id: messageId,
+      event_type: eventType,
+      action_type_hint: eventType,
+      action_name: actionName,
+      action_name_hint: actionName,
+      roll_total: normalizeNumber(rollFigures.rollTotal ?? rollFigures.total),
+      roll_total_hint: normalizeNumber(rollFigures.rollTotal ?? rollFigures.total),
+      roll_natural: rollNatural,
+      roll_natural_hint: rollNatural,
+      damage_total: normalizeNumber(rollFigures.damageHint),
+      damage_total_hint: normalizeNumber(rollFigures.damageHint),
+      heal_total: normalizeNumber(rollFigures.healHint),
+      heal_total_hint: normalizeNumber(rollFigures.healHint),
+      is_critical: rollFigures.isCritical === true || rollFigures.nat20 > 0,
+      is_critical_hint: rollFigures.isCritical === true || rollFigures.nat20 > 0,
+      is_fumble: rollFigures.isFumble === true,
+      is_fumble_hint: rollFigures.isFumble === true,
+      speaker: bucket.route_to_gm ? bucket.label : speaker,
+      original_speaker: speaker,
+      source_label: bucket.sourceLabel,
+      participant_id: bucket.participant_id || null,
+      participant_label: bucket.participant_label || 'Non resolu',
+      target_kind: bucket.target_kind,
+      target_id: bucket.target_id,
+      target_label: bucket.participant_label,
+      character_id: bucket.target_kind === 'character' ? bucket.target_id : null,
+      player_id: bucket.target_kind === 'player' ? bucket.target_id : null,
+      actor_id: actor?.id || null,
+      actor_kind: actorKind || 'unknown',
+      user_id: user?.id || null,
+      sub_type: '',
+      sub_type_hint: '',
+      skill_name: '',
+      skill_name_hint: '',
+      mapped: bucket.mapped,
+      bucket_key: bucket.key,
+      route_to_gm: bucket.route_to_gm,
+      user,
+    };
   }
 
   let throttleRefreshTimer = null;
@@ -251,68 +717,22 @@
   }
 
   function processMessageForMeasures(message) {
-    const measures = getActiveMeasures();
-    if (measures.length === 0) return;
-
     const profile = globalThis.getCachedMappingProfile?.();
     if (!profile) return;
+    const measures = getProfileMetrics(profile);
+    if (measures.length === 0) return;
 
-    const messageId = String(message.id || '');
-    if (!messageId) return;
+    const event = buildLiveEventFromMessage(message, profile);
+    if (!event) return;
 
-    const actor = globalThis.resolveMessageActor?.(message);
-    const rollFigures = globalThis.extractRollFigures?.(message);
-    if (!rollFigures) return;
+    measuresState.liveEventIds.add(event.message_id);
+    measuresState.liveEvents.push(event);
 
-    const sourceKey = actor?.uuid || actor?.id || message.speaker?.alias || '';
-    const mapping = sourceKey ? globalThis.resolveMappingFromProfile?.('actor', sourceKey) : null;
-
-    const participantId = mapping?.target_id || null;
-    const participantLabel = mapping?.target_label || message.speaker?.alias || 'Inconnu';
-
-    const event_type = rollFigures.damageHint
-      ? 'damage'
-      : rollFigures.healHint
-        ? 'healing'
-        : rollFigures.count
-          ? 'roll'
-          : 'message';
-    const action_name = message.flavor || 'Action';
-    const roll_total = rollFigures.total || null;
-    const roll_natural = rollFigures.nat20 > 0 ? 20 : null;
-    const damage_total = rollFigures.damageHint || null;
-    const heal_total = rollFigures.healHint || null;
-    const speaker = message.speaker?.alias || '';
-    const sub_type = '';
-    const skill_name = '';
-
-    const vttEvent = {
-      event_type,
-      action_name,
-      roll_total,
-      roll_natural,
-      damage_total,
-      heal_total,
-      speaker,
-      participant_id: participantId,
-      participant_label: participantLabel,
-      sub_type,
-      skill_name,
-    };
-
-    const gmUser = game.users?.find?.((u) => u.isGM && u.active);
-    const gmUserId = gmUser?.id || null;
-
-    const npcActorIds = new Set(
-      Array.from(game.actors || [])
-        .filter((a) => a.type === 'npc' && !a.hasPlayerOwner)
-        .map((a) => a.id),
-    );
-
-    const matches = matchEventToMeasures(vttEvent, measures, { gmUserId, npcActorIds });
-
-    for (const [measureId, contribution] of matches.entries()) {
-      recordMeasureContribution(messageId, participantId, participantLabel, measureId, contribution);
+    for (const measure of measures) {
+      const scratch = { count: 0, sum: 0, numerator: 0, denominator: 0, messages: 0 };
+      if (messageMatchesMetricFilter(event, measure) && addMetricContribution(scratch, measure, event)) {
+        recordMeasureMatch(event.message_id, measure.id);
+      }
     }
   }
 
@@ -329,22 +749,191 @@
     return result;
   }
 
+  function computeLiveDeltaForMetric(profile, metric) {
+    const buckets = new Map();
+    const totals = { count: 0, sum: 0, numerator: 0, denominator: 0, messages: 0 };
+    if (!metric) return { buckets, totals };
+
+    measuresState.liveEvents.forEach((event) => {
+      if (!messageMatchesMetricFilter(event, metric)) return;
+      const bucketInfo = getMetricBucket(profile, event);
+      const bucket = buckets.get(bucketInfo.key) || {
+        ...bucketInfo,
+        count: 0,
+        sum: 0,
+        numerator: 0,
+        denominator: 0,
+        messages: 0,
+      };
+      const before = {
+        count: bucket.count,
+        sum: bucket.sum,
+        numerator: bucket.numerator,
+        denominator: bucket.denominator,
+      };
+      const contributed = addMetricContribution(bucket, metric, event);
+      if (!contributed) return;
+      bucket.messages += 1;
+      totals.messages += 1;
+      totals.count += bucket.count - before.count;
+      totals.sum += bucket.sum - before.sum;
+      totals.numerator += bucket.numerator - before.numerator;
+      totals.denominator += bucket.denominator - before.denominator;
+      buckets.set(bucketInfo.key, bucket);
+    });
+
+    return { buckets, totals };
+  }
+
+  function findBaselineEntryForBucket(baselineRanking, bucket) {
+    const bucketSource = normalizeMetricKey(bucket.sourceLabel);
+    const bucketLabel = normalizeMetricKey(bucket.label);
+    return baselineRanking.find((entry) => {
+      const entrySource = normalizeMetricKey(entry.sourceLabel);
+      const entryLabel = normalizeMetricKey(entry.label);
+      return (bucketSource && entrySource === bucketSource)
+        || (bucketLabel && entryLabel === bucketLabel);
+    }) || null;
+  }
+
+  function computeBaselinePlusLive(profile, metric) {
+    if (!metric) return { metricResult: null, leaderboard: [] };
+
+    const baselineResult = metric.result || null;
+    const baselineRanking = Array.isArray(metric.ranking) ? metric.ranking : [];
+    const { buckets, totals } = computeLiveDeltaForMetric(profile, metric);
+    const family = metricAggregationFamily(metric);
+
+    const baselineValue = Number(baselineResult?.value) || 0;
+    const baselineCount = Number(baselineResult?.count) || 0;
+    const mergedGlobal = mergeBaselineAndLiveMetric(metric, family, baselineValue, baselineCount, totals);
+    const totalDelta = mergedGlobal.delta;
+    const mergedValue = mergedGlobal.value;
+    const hasDelta = Math.abs(totalDelta) > 0.01 || totals.messages > 0;
+    const deltaLabel = Math.abs(totalDelta) > 0.01
+      ? `${totalDelta > 0 ? '+' : '-'}${formatMetricValue(Math.abs(totalDelta), metric)}`
+      : '';
+    const metricResult = baselineResult || hasDelta ? {
+      value: mergedValue,
+      label: formatMetricValue(mergedValue, metric),
+      count: mergedGlobal.count,
+      delta_value: totalDelta,
+      delta_label: deltaLabel,
+      delta_count: totals.messages,
+      has_delta: hasDelta,
+    } : null;
+
+    const merged = new Map();
+    baselineRanking.forEach((entry) => {
+      const key = entry.key || `baseline-${merged.size}`;
+      merged.set(key, {
+        key,
+        label: entry.label,
+        sourceLabel: entry.sourceLabel || entry.label,
+        mapped: entry.mapped !== false,
+        baseline_value: Number(entry.value) || 0,
+        baseline_count: Number(entry.count) || 0,
+        baseline_label: entry.value_label || formatMetricValue(Number(entry.value) || 0, metric),
+        delta_value: 0,
+        delta_messages: 0,
+        merged_count: Number(entry.count) || 0,
+      });
+    });
+
+    for (const [bucketKey, bucket] of buckets.entries()) {
+      let entry = merged.get(bucketKey);
+      if (!entry) {
+        const matched = findBaselineEntryForBucket(Array.from(merged.values()), bucket);
+        if (matched) entry = matched;
+      }
+      if (entry) {
+        const mergedEntry = mergeBaselineAndLiveMetric(metric, family, entry.baseline_value, entry.baseline_count, bucket);
+        entry.delta_value = mergedEntry.delta;
+        entry.delta_messages = bucket.messages;
+        entry.merged_count = mergedEntry.count;
+      } else {
+        const mergedBucket = mergeBaselineAndLiveMetric(metric, family, 0, 0, bucket);
+        merged.set(bucketKey, {
+          key: bucketKey,
+          label: bucket.label,
+          sourceLabel: bucket.sourceLabel,
+          mapped: bucket.mapped,
+          baseline_value: 0,
+          baseline_count: 0,
+          baseline_label: '',
+          delta_value: mergedBucket.value,
+          delta_messages: bucket.messages,
+          merged_count: mergedBucket.count,
+        });
+      }
+    }
+
+    const leaderboard = Array.from(merged.values()).map((entry) => {
+      const finalValue = entry.baseline_value + entry.delta_value;
+      const entryHasDelta = Math.abs(entry.delta_value) > 0.01 || entry.delta_messages > 0;
+      const entryDeltaLabel = Math.abs(entry.delta_value) > 0.01
+        ? `${entry.delta_value > 0 ? '+' : '-'}${formatMetricValue(Math.abs(entry.delta_value), metric)}`
+        : '';
+      return {
+        key: entry.key,
+        label: entry.label,
+        participant_label: entry.label,
+        sourceLabel: entry.sourceLabel,
+        mapped: entry.mapped,
+        resolved: entry.mapped !== false,
+        baseline_value: entry.baseline_value,
+        baseline_label: entry.baseline_label,
+        value: finalValue,
+        value_label: formatMetricValue(finalValue, metric),
+        valueLabel: formatMetricValue(finalValue, metric),
+        delta_value: entry.delta_value,
+        delta_label: entryDeltaLabel,
+        deltaLabel: entryDeltaLabel,
+        delta_messages: entry.delta_messages,
+        has_delta: entryHasDelta,
+        merged_count: entry.merged_count,
+      };
+    });
+
+    return {
+      metricResult,
+      leaderboard: leaderboard
+        .filter((entry) => Number(entry.value) > 0 || entry.has_delta)
+        .sort((left, right) => (right.value - left.value)
+          || (right.delta_value - left.delta_value)
+          || left.label.localeCompare(right.label))
+        .slice(0, 10),
+    };
+  }
+
   function getSelectedMeasureData() {
-    const measures = getActiveMeasures();
-    const selected = measures.find((m) => m.id === measuresState.selectedMeasureId) || measures[0] || null;
+    const profile = globalThis.getCachedMappingProfile?.();
+    const measures = profile ? getProfileMetrics(profile) : [];
+    const selected = getSelectedProfileMetric(measures, measuresState.selectedMeasureId);
 
     if (!selected) {
       return {
         measure: null,
         ranking: [],
+        leaderboard: [],
+        metricResult: null,
+        metric_result: null,
+        profileMetrics: measures,
+        metricStatus: getMetricProfileStatus(profile),
       };
     }
 
-    const ranking = buildMeasureRanking(selected.id, selected);
+    const merged = computeBaselinePlusLive(profile, selected);
 
     return {
       measure: selected,
-      ranking,
+      metric: selected,
+      ranking: merged.leaderboard,
+      leaderboard: merged.leaderboard,
+      metricResult: merged.metricResult,
+      metric_result: merged.metricResult,
+      profileMetrics: measures,
+      metricStatus: getMetricProfileStatus(profile),
     };
   }
 
