@@ -749,6 +749,26 @@
   gap: 6px;
 }
 
+.rollcodex-floating-panel__auto {
+  align-items: center;
+  color: #d8c7ad;
+  display: flex;
+  font-size: 11px;
+  gap: 6px;
+}
+
+.rollcodex-floating-panel__auto button {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 5px;
+  color: #f7efe1;
+  cursor: pointer;
+  font-weight: 700;
+  min-height: 24px;
+  min-width: 28px;
+  padding: 2px 7px;
+}
+
 .rollcodex-floating-panel__buttons button[data-rollcodex-floating-end] {
   background: #8a4a31;
   border-color: #a86042;
@@ -759,7 +779,8 @@
   border-color: #4d75a8;
 }
 
-.rollcodex-floating-panel__buttons button:disabled {
+.rollcodex-floating-panel__buttons button:disabled,
+.rollcodex-floating-panel__auto button:disabled {
   cursor: not-allowed;
   opacity: 0.48;
 }

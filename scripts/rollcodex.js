@@ -107,6 +107,7 @@ const autoSnapshotState = {
   lastErrorMessage: '',
   idleTimer: null,
   inMemoryLastMessageId: '',
+  inFlight: false,
 };
 
 const liveSessionState = {
@@ -1236,6 +1237,9 @@ function recordLiveMetricsFromMessage(message) {
     actionName,
     actionType,
     actionTypeLabel: getActionTypeLabel(actionType),
+    roll_total: figures.rollCount ? figures.rollTotal : null,
+    damage_total: damage || null,
+    heal_total: healing || null,
     rollTotal: figures.rollCount ? formatMetricNumber(figures.rollTotal) : '',
     damage: damage ? formatMetricNumber(damage) : '',
     healing: healing ? formatMetricNumber(healing) : '',
@@ -1278,6 +1282,63 @@ function summarizeLiveMetricsForTemplate() {
       damage: formatMetricNumber(liveMetricsState.totals.damage),
       healing: formatMetricNumber(liveMetricsState.totals.healing),
     },
+  };
+}
+
+function summarizeLiveMetricsForPayload() {
+  const participants = Array.from(liveMetricsState.participants.values())
+    .sort((left, right) => (right.damage + right.healing + right.rolls) - (left.damage + left.healing + left.rolls))
+    .slice(0, 20)
+    .map((participant) => {
+      const topAction = Array.from(participant.actions.entries())
+        .sort((left, right) => right[1] - left[1])[0];
+      return {
+        key: participant.key,
+        speaker: participant.speaker,
+        actor_id: participant.actorId || null,
+        actor_name: participant.actorName || null,
+        actor_kind: participant.actorKind || null,
+        user_id: participant.userId || null,
+        user_name: participant.userName || null,
+        messages: participant.messages,
+        rolls: participant.rolls,
+        criticals: participant.criticals,
+        fumbles: participant.fumbles,
+        damage: participant.damage,
+        healing: participant.healing,
+        top_action: topAction ? { name: topAction[0], count: topAction[1] } : null,
+      };
+    });
+  const selectedMeasureData = globalThis.RollCodexMeasures?.getSelectedMeasureData?.() || { measure: null, ranking: [] };
+  const selectedMeasure = selectedMeasureData.measure;
+
+  return {
+    source: 'foundry-module-live',
+    started_at: liveMetricsState.startedAt || null,
+    totals: { ...liveMetricsState.totals },
+    top_participants: participants,
+    recent_events: liveMetricsState.recentEvents.slice(0, LIVE_METRICS_RECENT_EVENTS_LIMIT).map((event) => ({
+      speaker: event.speaker,
+      actor_id: event.actorId || null,
+      item_id: event.itemId || null,
+      action_name: event.actionName,
+      action_type: event.actionType,
+      roll_total: event.roll_total,
+      damage_total: event.damage_total,
+      heal_total: event.heal_total,
+    })),
+    selected_measure: selectedMeasure ? {
+      id: selectedMeasure.id,
+      name: selectedMeasure.name,
+      aggregation: selectedMeasure.aggregation,
+      field: selectedMeasure.field,
+    } : null,
+    selected_measure_ranking: (selectedMeasureData.ranking || []).slice(0, 10).map((entry) => ({
+      participant_id: entry.participant_id || null,
+      participant_label: entry.participant_label || 'Non resolu',
+      value: entry.value,
+      resolved: Boolean(entry.resolved),
+    })),
   };
 }
 
@@ -1349,6 +1410,19 @@ async function toggleFloatingAutoSnapshot() {
   const settings = getAutoSnapshotSettings();
   await game.settings.set(MODULE_ID, SETTINGS.autoSnapshotEnabled, !settings.enabled);
   setFloatingPanelStatus(!settings.enabled ? 'Auto-capture active.' : 'Auto-capture suspendue.');
+  scheduleIdleSnapshot(!settings.enabled ? 'foundry_auto_enabled' : 'foundry_auto_disabled');
+}
+
+async function setAutoIdleMinutes(minutes) {
+  const safeMinutes = Math.max(5, Math.min(180, Math.round(Number(minutes) || DEFAULT_IDLE_MINUTES)));
+  await game.settings.set(MODULE_ID, SETTINGS.autoSnapshotIdleMinutes, safeMinutes);
+  scheduleIdleSnapshot('foundry_auto_idle_changed');
+  setFloatingPanelStatus(`Auto ${safeMinutes} min.`);
+}
+
+async function adjustFloatingAutoIdle(deltaMinutes) {
+  const settings = getAutoSnapshotSettings();
+  await setAutoIdleMinutes(settings.idleMinutes + deltaMinutes);
 }
 
 async function sendFloatingSnapshot() {
@@ -1405,6 +1479,8 @@ function bindFloatingPanelEvents(panel) {
   panel.querySelector('[data-rollcodex-floating-send]')?.addEventListener('click', sendFloatingSnapshot);
   panel.querySelector('[data-rollcodex-floating-end]')?.addEventListener('click', endFloatingSession);
   panel.querySelector('[data-rollcodex-floating-auto]')?.addEventListener('click', toggleFloatingAutoSnapshot);
+  panel.querySelector('[data-rollcodex-floating-auto-minus]')?.addEventListener('click', () => adjustFloatingAutoIdle(-5));
+  panel.querySelector('[data-rollcodex-floating-auto-plus]')?.addEventListener('click', () => adjustFloatingAutoIdle(5));
 }
 
 function renderFloatingPanel() {
@@ -1464,13 +1540,18 @@ function renderFloatingPanel() {
       <span><strong>${escapeHtml(liveMetrics.totals.healing)}</strong> soins</span>
     </div>
     <p class="rollcodex-floating-panel__status">${escapeHtml(status)}</p>
-    <p class="rollcodex-floating-panel__meta">Actif : ${escapeHtml(topParticipant)} · Auto ${autoSettings.enabled ? 'ON' : 'OFF'}</p>
+    <p class="rollcodex-floating-panel__meta">Actif : ${escapeHtml(topParticipant)} · Auto ${autoSettings.enabled ? 'ON' : 'OFF'} · ${autoSettings.idleMinutes} min</p>
     <div class="rollcodex-floating-panel__buttons">
       <button type="button" data-rollcodex-floating-config>${connected ? 'Configurer' : 'Connecter'}</button>
       <button type="button" data-rollcodex-floating-live>Live</button>
       <button type="button" data-rollcodex-floating-send ${canSend && connected ? '' : 'disabled'}>Envoyer</button>
       <button type="button" data-rollcodex-floating-end ${canSend && connected ? '' : 'disabled'}>Terminer</button>
       <button type="button" data-rollcodex-floating-auto ${canSend && connected ? '' : 'disabled'}>Auto ${autoSettings.enabled ? 'ON' : 'OFF'}</button>
+    </div>
+    <div class="rollcodex-floating-panel__auto">
+      <button type="button" data-rollcodex-floating-auto-minus ${canSend && connected ? '' : 'disabled'} title="Reduire l intervalle auto">-</button>
+      <span>Auto ${autoSettings.idleMinutes} min</span>
+      <button type="button" data-rollcodex-floating-auto-plus ${canSend && connected ? '' : 'disabled'} title="Augmenter l intervalle auto">+</button>
     </div>
   `;
   bindFloatingPanelEvents(panel);
@@ -1533,6 +1614,7 @@ function buildSnapshotPayload(connection, { mode = 'manual', reason = 'manual', 
 
   const mappingHints = getCurrentMappingHints();
   const measureMatches = globalThis.RollCodexMeasures?.getMeasureMatchesForSnapshot?.() || [];
+  const mappingSnapshot = buildRollCodexMappingSnapshot();
   const payload = {
     provider: 'foundry',
     connection_id: connection.connectionId,
@@ -1550,17 +1632,17 @@ function buildSnapshotPayload(connection, { mode = 'manual', reason = 'manual', 
       message_count: messages.length,
       mapping_hint_count: mappingHints.length,
       rollcodex_mapping_version: ROLLCODEX_MAPPING_VERSION,
-      rollcodex_mapping: buildRollCodexMappingSnapshot(),
+      rollcodex_live_metrics: summarizeLiveMetricsForPayload(),
+      rollcodex_mapping_snapshot: mappingSnapshot,
+      rollcodex_mapping: mappingSnapshot,
       rollcodex_roster_snapshot: buildRollCodexRosterSnapshot(),
     },
     messages: messages.map(({ id: _id, ...rest }) => rest),
+    mapping_hints: mappingHints,
   };
 
-  if (mappingHints.length > 0) {
-  }
   if (measureMatches.length > 0) {
     payload.measure_matches = measureMatches;
-    payload.mapping_hints = mappingHints;
   }
 
   return { payload, lastMessageId, messageCount: messages.length, mappingHintCount: mappingHints.length };
@@ -1661,30 +1743,54 @@ async function rememberSnapshotFailure(error) {
   refreshConnectionApps();
 }
 
+function getAutoLastSentAtMs(settings = getAutoSnapshotSettings()) {
+  const lastSentAt = Date.parse(String(settings.lastSentAt || ''));
+  return Number.isFinite(lastSentAt) ? lastSentAt : 0;
+}
+
+function shouldThrottleAutoSnapshot(settings = getAutoSnapshotSettings()) {
+  const lastSentAt = getAutoLastSentAtMs(settings);
+  return lastSentAt > 0 && Date.now() - lastSentAt < settings.minIntervalMs;
+}
+
 async function sendSnapshotPayload({ mode = 'manual', reason = 'manual', skipIfEmpty = false } = {}) {
   const connection = getStoredConnection();
   if (!hasStoredConnection(connection)) {
     throw new Error('Connectez ce monde a RollCodex avant d envoyer une capture.');
   }
 
-  const sinceMessageId = getStoredLastMessageId();
-  const { payload, lastMessageId, messageCount } = buildSnapshotPayload(connection, {
-    mode,
-    reason,
-    sinceMessageId,
-  });
-
-  if (messageCount === 0 && skipIfEmpty) {
-    return { skipped: true, blockedResponse: false, messageCount: 0 };
+  const isAuto = mode === 'auto';
+  if (isAuto) {
+    const settings = getAutoSnapshotSettings();
+    if (!settings.enabled || shouldThrottleAutoSnapshot(settings)) {
+      return { skipped: true, blockedResponse: false, messageCount: 0 };
+    }
+    if (autoSnapshotState.inFlight) {
+      return { skipped: true, blockedResponse: false, messageCount: 0 };
+    }
+    autoSnapshotState.inFlight = true;
   }
 
   try {
+    const sinceMessageId = getStoredLastMessageId();
+    const { payload, lastMessageId, messageCount } = buildSnapshotPayload(connection, {
+      mode,
+      reason,
+      sinceMessageId,
+    });
+
+    if (messageCount === 0 && skipIfEmpty) {
+      return { skipped: true, blockedResponse: false, messageCount: 0 };
+    }
+
     const result = await postSnapshotPayload(connection.endpoint, payload);
     await rememberSnapshotSuccess(lastMessageId);
     return { ...result, messageCount };
   } catch (error) {
     await rememberSnapshotFailure(error);
     throw error;
+  } finally {
+    if (isAuto) autoSnapshotState.inFlight = false;
   }
 }
 
@@ -1693,17 +1799,14 @@ function hasPendingSnapshotMessages() {
   return collectChatMessagesSince(sinceMessageId).messages.length > 0;
 }
 
-function isFoundryDesktopClient() {
-  const userAgent = String(navigator.userAgent || '').toLowerCase();
-  return userAgent.includes('electron') || Boolean(globalThis.process?.versions?.electron);
-}
-
 function shouldSendSessionEndSnapshot() {
   if (!canCurrentUserSendSnapshots()) return false;
   if (!hasStoredConnection()) return false;
+  if (autoSnapshotState.inFlight) return false;
 
   const settings = getAutoSnapshotSettings();
   if (!settings.enabled) return false;
+  if (shouldThrottleAutoSnapshot(settings)) return false;
   return hasPendingSnapshotMessages();
 }
 
@@ -1739,32 +1842,47 @@ function postSnapshotPayloadDuringUnload(endpoint, snapshotPayload) {
 
 function sendSessionEndSnapshot(reason = 'foundry_session_end') {
   if (!shouldSendSessionEndSnapshot()) return;
+  autoSnapshotState.inFlight = true;
 
-  const connection = getStoredConnection();
-  const sinceMessageId = getStoredLastMessageId();
-  const { payload, lastMessageId, messageCount } = buildSnapshotPayload(connection, {
-    mode: 'auto',
-    reason,
-    sinceMessageId,
-  });
+  try {
+    const connection = getStoredConnection();
+    const sinceMessageId = getStoredLastMessageId();
+    const { payload, lastMessageId, messageCount } = buildSnapshotPayload(connection, {
+      mode: 'auto',
+      reason,
+      sinceMessageId,
+    });
 
-  if (messageCount === 0) return;
+    if (messageCount === 0) {
+      autoSnapshotState.inFlight = false;
+      return;
+    }
 
-  const accepted = postSnapshotPayloadDuringUnload(connection.endpoint, payload);
+    const accepted = postSnapshotPayloadDuringUnload(connection.endpoint, payload);
 
-  if (!accepted) {
-    const message = 'Capture automatique de fin de session impossible.';
+    if (!accepted) {
+      const message = 'Capture automatique de fin de session impossible.';
+      autoSnapshotState.lastErrorMessage = message;
+      game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastError, message).catch(() => {});
+      autoSnapshotState.inFlight = false;
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    autoSnapshotState.inMemoryLastMessageId = lastMessageId || autoSnapshotState.inMemoryLastMessageId;
+    game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastSentAt, nowIso).catch(() => {});
+    game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastError, '').catch(() => {});
+    if (lastMessageId) {
+      game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastMessageId, lastMessageId).catch(() => {});
+    }
+    refreshConnectionApps();
+  } catch (error) {
+    const message = error?.message || 'Capture automatique de fin de session impossible.';
     autoSnapshotState.lastErrorMessage = message;
     game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastError, message).catch(() => {});
-    return;
-  }
-
-  const nowIso = new Date().toISOString();
-  autoSnapshotState.inMemoryLastMessageId = lastMessageId || autoSnapshotState.inMemoryLastMessageId;
-  game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastSentAt, nowIso).catch(() => {});
-  game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastError, '').catch(() => {});
-  if (lastMessageId) {
-    game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastMessageId, lastMessageId).catch(() => {});
+    console.warn('[RollCodex] Session end snapshot failed', error);
+  } finally {
+    autoSnapshotState.inFlight = false;
   }
 }
 
@@ -1775,7 +1893,7 @@ function clearIdleTimer() {
   }
 }
 
-function scheduleIdleSnapshot() {
+function scheduleIdleSnapshot(reason = 'foundry_auto_idle') {
   clearIdleTimer();
   if (!canCurrentUserSendSnapshots()) return;
   if (!hasStoredConnection()) return;
@@ -1788,7 +1906,7 @@ function scheduleIdleSnapshot() {
 
   autoSnapshotState.idleTimer = window.setTimeout(() => {
     autoSnapshotState.idleTimer = null;
-    sendSnapshotPayload({ mode: 'auto', reason: 'idle_timeout', skipIfEmpty: true })
+    sendSnapshotPayload({ mode: 'auto', reason, skipIfEmpty: true })
       .catch((error) => console.warn('[RollCodex] Idle snapshot failed', error));
   }, idleMs);
 }
@@ -1807,15 +1925,16 @@ function registerAutoSnapshotHooks() {
     sendSessionEndSnapshot('foundry_unload');
   }, { capture: true });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && isFoundryDesktopClient()) {
-      sendSessionEndSnapshot('foundry_desktop_visibility_hidden');
+    if (document.visibilityState === 'visible') {
+      refreshConnectionApps();
+      scheduleIdleSnapshot('foundry_visibility_visible');
     }
   }, { capture: true });
   Hooks.on('createChatMessage', () => {
-    scheduleIdleSnapshot();
+    scheduleIdleSnapshot('foundry_auto_chat_idle');
   });
 
-  scheduleIdleSnapshot();
+  scheduleIdleSnapshot('foundry_auto_ready');
 }
 
 function registerLiveMetricsHooks() {
