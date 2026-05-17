@@ -1471,16 +1471,152 @@ async function endFloatingSession() {
   }
 }
 
+async function forgetFloatingConnection() {
+  const confirmed = await Dialog.confirm({
+    title: 'Oublier RollCodex',
+    content: '<p>La connexion locale sera retiree de ce monde Foundry.</p>',
+  });
+  if (!confirmed) return;
+
+  await Promise.all([
+    game.settings.set(MODULE_ID, SETTINGS.connectionId, ''),
+    game.settings.set(MODULE_ID, SETTINGS.connectionSecret, ''),
+    game.settings.set(MODULE_ID, SETTINGS.localConnectionSecret, ''),
+    game.settings.set(MODULE_ID, SETTINGS.endpoint, ''),
+    game.settings.set(MODULE_ID, SETTINGS.mappingProfileEndpoint, ''),
+    game.settings.set(MODULE_ID, SETTINGS.mappingProfileCache, ''),
+    game.settings.set(MODULE_ID, SETTINGS.mappingProfileFetchedAt, ''),
+    game.settings.set(MODULE_ID, SETTINGS.workspaceLabel, ''),
+    game.settings.set(MODULE_ID, SETTINGS.systemId, ''),
+    game.settings.set(MODULE_ID, SETTINGS.systemLabel, ''),
+    game.settings.set(MODULE_ID, SETTINGS.connectedAt, ''),
+    game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastSentAt, ''),
+    game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastError, ''),
+    game.settings.set(MODULE_ID, SETTINGS.autoSnapshotLastMessageId, ''),
+    clearPendingPairing(),
+  ]);
+
+  autoSnapshotState.inMemoryLastMessageId = '';
+  mappingProfileState.profile = null;
+  mappingProfileState.index = null;
+  mappingProfileState.generatedAt = 0;
+  mappingProfileState.lastFetchError = '';
+  resetLiveSessionState();
+  clearIdleTimer();
+  setFloatingPanelStatus('Connexion oubliee.');
+  ui.notifications.info('Connexion RollCodex retiree de ce monde.');
+}
+
+function compactFloatingStatus(status, connected) {
+  const text = normalizeString(status).toLowerCase();
+  if (!connected) return 'Non connecte';
+  if (!text || text.includes('connecte')) return 'Connecte';
+  if (text.includes('profil') || text.includes('mapping') || text.includes('synchro')) return 'Synchro';
+  if (text.includes('auto')) return 'Auto';
+  if (text.includes('capture') || text.includes('envoi')) return 'Envoi';
+  if (text.includes('fin de session')) return 'Session';
+  return 'Connecte';
+}
+
 function bindFloatingPanelEvents(panel) {
   panel.querySelector('[data-rollcodex-floating-drag]')?.addEventListener('pointerdown', beginFloatingPanelDrag);
   panel.querySelector('[data-rollcodex-floating-collapse]')?.addEventListener('click', toggleFloatingPanelCollapsed);
   panel.querySelector('[data-rollcodex-floating-config]')?.addEventListener('click', () => new RollCodexConnectionApp().render(true));
-  panel.querySelector('[data-rollcodex-floating-live]')?.addEventListener('click', () => new RollCodexLivePanel().render(true));
+  panel.querySelector('[data-rollcodex-floating-live]')?.addEventListener('click', () => new RollCodexLiveMetricsApp().render(true));
   panel.querySelector('[data-rollcodex-floating-send]')?.addEventListener('click', sendFloatingSnapshot);
   panel.querySelector('[data-rollcodex-floating-end]')?.addEventListener('click', endFloatingSession);
+  panel.querySelector('[data-rollcodex-floating-forget]')?.addEventListener('click', forgetFloatingConnection);
   panel.querySelector('[data-rollcodex-floating-auto]')?.addEventListener('click', toggleFloatingAutoSnapshot);
   panel.querySelector('[data-rollcodex-floating-auto-minus]')?.addEventListener('click', () => adjustFloatingAutoIdle(-5));
   panel.querySelector('[data-rollcodex-floating-auto-plus]')?.addEventListener('click', () => adjustFloatingAutoIdle(5));
+  panel.querySelector('[data-rollcodex-floating-measure]')?.addEventListener('change', async (event) => {
+    if (globalThis.RollCodexMeasures?.selectMeasure) {
+      await globalThis.RollCodexMeasures.selectMeasure(event.currentTarget.value || '');
+      renderFloatingPanel();
+    }
+  });
+}
+
+function getFloatingRankingSummary(liveMetrics) {
+  const selectedMeasureData = globalThis.RollCodexMeasures?.getSelectedMeasureData?.() || { measure: null, ranking: [] };
+  const selectedMeasure = selectedMeasureData.measure || null;
+  const selectedRanking = Array.isArray(selectedMeasureData.ranking) ? selectedMeasureData.ranking : [];
+  const availableMeasures = globalThis.RollCodexMeasures?.getActiveMeasures?.() || [];
+  const selectedMeasureId = globalThis.RollCodexMeasures?.selectedMeasureId || '';
+
+  if (selectedMeasure && selectedRanking.length > 0) {
+    return {
+      title: selectedMeasure.icon
+        ? `${selectedMeasure.icon} ${selectedMeasure.name}`
+        : selectedMeasure.name,
+      selectedMeasureId,
+      availableMeasures,
+      rows: selectedRanking.slice(0, 3).map((entry, index) => ({
+        rank: index + 1,
+        label: entry.participant_label || 'Non resolu',
+        value: entry.valueLabel || formatMetricNumber(entry.value),
+        unresolved: !entry.resolved,
+      })),
+      topLabel: selectedRanking[0]?.participant_label || 'Table Foundry',
+    };
+  }
+
+  const participants = Array.isArray(liveMetrics?.participants) ? liveMetrics.participants : [];
+  const rows = participants.slice(0, 3).map((participant, index) => ({
+    rank: index + 1,
+    label: participant.speaker || 'Inconnu',
+    value: `${participant.rollsLabel} jets`,
+    unresolved: false,
+  }));
+
+  return {
+    title: 'Top participants',
+    selectedMeasureId,
+    availableMeasures,
+    rows,
+    topLabel: rows[0]?.label || 'Table Foundry',
+  };
+}
+
+function renderFloatingRankingHtml(rankingSummary) {
+  const hasMeasures = Array.isArray(rankingSummary.availableMeasures) && rankingSummary.availableMeasures.length > 0;
+  const options = hasMeasures
+    ? rankingSummary.availableMeasures.map((measure) => {
+      const selected = measure.id === rankingSummary.selectedMeasureId ? 'selected' : '';
+      return `<option value="${escapeHtml(measure.id)}" ${selected}>${escapeHtml(measure.name || measure.id)}</option>`;
+    }).join('')
+    : '';
+  const selectHtml = hasMeasures
+    ? `
+      <label class="rollcodex-floating-panel__ranking-select-wrap">
+        <span>Mesure</span>
+        <select data-rollcodex-floating-measure class="rollcodex-floating-panel__ranking-select">${options}</select>
+      </label>
+    `
+    : '';
+
+  if (!rankingSummary.rows.length) {
+    return `
+      ${selectHtml}
+      <div class="rollcodex-floating-panel__ranking-empty">Aucun classement live pour le moment.</div>
+    `;
+  }
+
+  const rows = rankingSummary.rows.map((entry) => {
+    return `
+      <li class="${entry.unresolved ? 'is-unresolved' : ''}">
+        <span class="rollcodex-floating-panel__ranking-rank">${entry.rank}</span>
+        <span class="rollcodex-floating-panel__ranking-label" title="${escapeHtml(entry.label)}">${escapeHtml(entry.label)}</span>
+        <span class="rollcodex-floating-panel__ranking-value">${escapeHtml(entry.value)}</span>
+      </li>
+    `;
+  }).join('');
+
+  return `
+    ${selectHtml}
+    <div class="rollcodex-floating-panel__ranking-head">${escapeHtml(rankingSummary.title)}</div>
+    <ol class="rollcodex-floating-panel__ranking-list">${rows}</ol>
+  `;
 }
 
 function renderFloatingPanel() {
@@ -1498,24 +1634,28 @@ function renderFloatingPanel() {
   const connected = hasStoredConnection(connection);
   const canSend = canCurrentUserSendSnapshots();
   const liveMetrics = summarizeLiveMetricsForTemplate();
+  const rankingSummary = getFloatingRankingSummary(liveMetrics);
+  const rankingHtml = renderFloatingRankingHtml(rankingSummary);
   const autoSettings = getAutoSnapshotSettings();
-  const topParticipant = liveMetrics.participants?.[0]?.speaker || 'Table Foundry';
+  const topParticipant = rankingSummary.topLabel || 'Table Foundry';
   const target = connected
     ? `${connection.workspaceLabel || 'Registre'} / ${connection.systemLabel || 'Systeme'}`
     : 'Monde non connecte';
   const status = floatingPanelState.status || (connected ? 'Connecte a RollCodex.' : 'Pret pour connexion.');
+  const statusLabel = compactFloatingStatus(status, connected);
 
   panel.className = `rollcodex-floating-panel ${settings.collapsed ? 'is-collapsed' : ''} ${connected ? 'is-connected' : 'is-idle'}`;
   panel.style.left = `${Math.max(8, settings.left)}px`;
   panel.style.top = `${Math.max(8, settings.top)}px`;
 
   if (settings.collapsed) {
+    const collapsedValue = rankingSummary.rows[0]?.value || '-';
     panel.innerHTML = `
       <div class="rollcodex-floating-panel__compact">
         <button type="button" class="rollcodex-floating-panel__drag" data-rollcodex-floating-drag title="Deplacer"><i class="fas fa-grip-lines"></i></button>
         <div class="rollcodex-floating-panel__compact-body">
           <strong>RollCodex</strong>
-          <span>${escapeHtml(connected ? 'Connecte' : 'Non connecte')}</span>
+          <span>${escapeHtml(topParticipant)} · ${escapeHtml(collapsedValue)}</span>
         </div>
         <button type="button" class="rollcodex-floating-panel__action" data-rollcodex-floating-collapse title="Ouvrir">Ouvrir</button>
       </div>
@@ -1531,6 +1671,7 @@ function renderFloatingPanel() {
         <strong>RollCodex Live</strong>
         <span>${escapeHtml(target)}</span>
       </div>
+      <span class="rollcodex-floating-panel__status-badge" title="${escapeHtml(status)}">${escapeHtml(statusLabel)}</span>
       <button type="button" class="rollcodex-floating-panel__action" data-rollcodex-floating-collapse title="Reduire">-</button>
     </header>
     <div class="rollcodex-floating-panel__metrics">
@@ -1539,13 +1680,17 @@ function renderFloatingPanel() {
       <span><strong>${escapeHtml(liveMetrics.totals.damage)}</strong> degats</span>
       <span><strong>${escapeHtml(liveMetrics.totals.healing)}</strong> soins</span>
     </div>
-    <p class="rollcodex-floating-panel__status">${escapeHtml(status)}</p>
+    <section class="rollcodex-floating-panel__ranking">
+      ${rankingHtml}
+    </section>
+    <p class="rollcodex-floating-panel__status" title="${escapeHtml(status)}">${escapeHtml(statusLabel)}</p>
     <p class="rollcodex-floating-panel__meta">Actif : ${escapeHtml(topParticipant)} · Auto ${autoSettings.enabled ? 'ON' : 'OFF'} · ${autoSettings.idleMinutes} min</p>
     <div class="rollcodex-floating-panel__buttons">
-      <button type="button" data-rollcodex-floating-config>${connected ? 'Configurer' : 'Connecter'}</button>
+      <button type="button" data-rollcodex-floating-config>${connected ? 'Cfg' : 'Lier'}</button>
       <button type="button" data-rollcodex-floating-live>Live</button>
-      <button type="button" data-rollcodex-floating-send ${canSend && connected ? '' : 'disabled'}>Envoyer</button>
-      <button type="button" data-rollcodex-floating-end ${canSend && connected ? '' : 'disabled'}>Terminer</button>
+      <button type="button" data-rollcodex-floating-send ${canSend && connected ? '' : 'disabled'}>Env.</button>
+      <button type="button" data-rollcodex-floating-end ${canSend && connected ? '' : 'disabled'}>Fin</button>
+      <button type="button" data-rollcodex-floating-forget ${connected ? '' : 'disabled'}>Oub.</button>
       <button type="button" data-rollcodex-floating-auto ${canSend && connected ? '' : 'disabled'}>Auto ${autoSettings.enabled ? 'ON' : 'OFF'}</button>
     </div>
     <div class="rollcodex-floating-panel__auto">
