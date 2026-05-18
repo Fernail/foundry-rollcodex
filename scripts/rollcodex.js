@@ -2623,6 +2623,17 @@ function extractRollFigures(message) {
   };
 }
 
+function hasRollFigurePayload(rollFigures) {
+  return Number(rollFigures?.count || 0) > 0
+    || Number(rollFigures?.damageHint || 0) > 0
+    || Number(rollFigures?.healHint || 0) > 0;
+}
+
+function isPreRollActionCardFigures(rollFigures) {
+  const actionType = normalizeString(rollFigures?.actionType).toLowerCase();
+  return Boolean(actionType && actionType !== 'auto' && actionType !== 'other' && !hasRollFigurePayload(rollFigures));
+}
+
 function extractMessageObservations(message) {
   const observations = [];
   if (!message) return observations;
@@ -2687,16 +2698,18 @@ function recordLiveObservation(message, { refresh = true } = {}) {
   if (!message) return;
   const messageId = String(message.id || '');
   if (messageId && liveSessionState.observedMessageIds.has(messageId)) return;
-  if (messageId) liveSessionState.observedMessageIds.add(messageId);
+
+  const rollFigures = extractRollFigures(message);
+  if (isPreRollActionCardFigures(rollFigures)) return;
 
   const observations = extractMessageObservations(message);
   if (observations.length === 0) return;
+  if (messageId) liveSessionState.observedMessageIds.add(messageId);
 
   if (!liveSessionState.startedAt) {
     liveSessionState.startedAt = new Date().toISOString();
   }
 
-  const rollFigures = extractRollFigures(message);
   liveSessionState.totals.actions += 1;
   liveSessionState.totals.rolls += rollFigures.count;
   liveSessionState.totals.nat20 += rollFigures.nat20;

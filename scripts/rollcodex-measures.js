@@ -637,6 +637,17 @@
     };
   }
 
+  function hasRollFigurePayload(rollFigures) {
+    return Number(rollFigures?.count || 0) > 0
+      || Number(rollFigures?.damageHint || 0) > 0
+      || Number(rollFigures?.healHint || 0) > 0;
+  }
+
+  function isPreRollActionCard(rollFigures) {
+    const actionType = normalizeString(rollFigures?.actionType).toLowerCase();
+    return Boolean(actionType && actionType !== 'auto' && actionType !== 'other' && !hasRollFigurePayload(rollFigures));
+  }
+
   function normalizeFoundryEventType(rollFigures) {
     const actionType = normalizeString(rollFigures?.actionType).toLowerCase();
     const hasRoll = Number(rollFigures?.count || 0) > 0;
@@ -645,11 +656,12 @@
 
     if (hasDamage) return 'damage';
     if (hasHealing) return 'healing';
+    if (hasRoll && actionType && actionType !== 'auto' && actionType !== 'other') return actionType;
     if (hasRoll) return 'roll';
 
     // Les cartes d'action pre-lancer (ex: attaque affichee avant clic) ne
     // doivent pas etre interpretees comme un evenement de mesure.
-    if (actionType && actionType !== 'auto' && actionType !== 'other') return 'message';
+    if (isPreRollActionCard(rollFigures)) return 'message';
     return 'message';
   }
 
@@ -661,6 +673,7 @@
     const user = resolveMessageUser(message);
     const rollFigures = globalThis.extractRollFigures?.(message);
     if (!rollFigures) return null;
+    if (isPreRollActionCard(rollFigures)) return null;
 
     const actorKind = normalizeString(
       actor ? globalThis.inferRollCodexActorKind?.(actor) : '',

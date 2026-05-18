@@ -1,3 +1,10 @@
+## 0.1.43 (2026-05-18)
+
+- Fix: les cartes d attaque pre-lancer sont ignorees sans reserver leur
+  `message_id`, pour laisser Foundry mapper le vrai message de jet apres le
+  clic. Les jets avec d20 gardent leur type d action (`attack`, `save`,
+  `check`, etc.) au lieu de retomber en `roll`.
+
 ## 0.1.39 (2026-05-18)
 
 - Fix: le GM n apparaissait pas dans le classement quand il jouait des
