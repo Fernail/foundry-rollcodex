@@ -1,3 +1,12 @@
+## 0.1.55 (2026-05-19)
+
+- Fix: l'adresse RollCodex par defaut pointe maintenant vers
+  `https://rollcodex.app` au lieu de l'ancien endpoint local de dev.
+- Compat: les mondes deja connectes et les demandes de liaison en cours
+  conservent leurs settings locaux, secrets et endpoints actifs.
+- Doc: les libelles du panneau de connexion et le README indiquent l'URL
+  publique de production.
+
 ## 0.1.50 (2026-05-19)
 
 - Fix: ajoute le toggle du bandeau RollCodex via l API officielle

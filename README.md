@@ -18,16 +18,20 @@ Quand le module sera reference dans le catalogue Foundry, l'installation pourra 
 
 - Foundry VTT minimum: 12
 - Foundry VTT verifie: 14.361
-- Module RollCodex: 0.1.12
+- Module RollCodex: 0.1.55
 
 ## Utilisation
 
 1. Activer le module dans le monde Foundry.
 2. Ouvrir les parametres du module RollCodex.
-3. Lancer la connexion vers RollCodex.
+3. Verifier que l'adresse RollCodex pointe sur `https://rollcodex.app`, puis lancer la connexion.
 4. Choisir le registre, le systeme, la campagne et la table dans RollCodex.
 5. Envoyer une capture manuelle ou laisser les captures de fin de session actives.
 6. Relire puis importer les donnees dans RollCodex.
+
+Les mondes deja connectes gardent leur connexion locale active lors de la mise
+a jour du module. Seuls les mondes sans connexion ni demande de liaison en cours
+recoivent automatiquement l'adresse publique par defaut.
 
 Le module envoie des captures VTT a relire. RollCodex ne transforme pas automatiquement ces donnees en narration et ne pretend pas deduire un contexte de jeu absent des logs.
 
