@@ -1,3 +1,10 @@
+## 0.1.44 (2026-05-18)
+
+- Fix: quand Foundry ajoute les degats sur le meme message que l attaque, le
+  rebuild live garde l evenement en `attack` au lieu de le reclasser en
+  `damage`. Les mesures de degats continuent de matcher via `damage_total`,
+  sans faire disparaitre le delta d attaque.
+
 ## 0.1.43 (2026-05-18)
 
 - Fix: les cartes d attaque pre-lancer sont ignorees sans reserver leur

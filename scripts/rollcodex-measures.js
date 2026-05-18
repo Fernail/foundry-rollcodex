@@ -654,9 +654,9 @@
     const hasDamage = Number(rollFigures?.damageHint || 0) > 0;
     const hasHealing = Number(rollFigures?.healHint || 0) > 0;
 
+    if (hasRoll && actionType && actionType !== 'auto' && actionType !== 'other') return actionType;
     if (hasDamage) return 'damage';
     if (hasHealing) return 'healing';
-    if (hasRoll && actionType && actionType !== 'auto' && actionType !== 'other') return actionType;
     if (hasRoll) return 'roll';
 
     // Les cartes d'action pre-lancer (ex: attaque affichee avant clic) ne
