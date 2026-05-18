@@ -2,7 +2,14 @@
 
 const MODULE_ID = 'rollcodex';
 const MODULE_VERSION = '0.1.54';
-const DEFAULT_ROLLCODEX_APP_URL = 'http://localhost:5173';
+const ROLLCODEX_PRODUCTION_APP_URL = 'https://rollcodex.app';
+const DEFAULT_ROLLCODEX_APP_URL = ROLLCODEX_PRODUCTION_APP_URL;
+const LEGACY_LOCAL_ROLLCODEX_APP_PORT = '5173';
+const LEGACY_LOCAL_ROLLCODEX_APP_URLS = new Set([
+  `http://localhost:${LEGACY_LOCAL_ROLLCODEX_APP_PORT}`,
+  `http://127.0.0.1:${LEGACY_LOCAL_ROLLCODEX_APP_PORT}`,
+  `http://[::1]:${LEGACY_LOCAL_ROLLCODEX_APP_PORT}`,
+]);
 const MESSAGE_HANDSHAKE_TYPE = 'rollcodex:vtt-pairing-handshake';
 const MESSAGE_HANDSHAKE_RESPONSE_TYPE = 'rollcodex:vtt-pairing-handshake-response';
 const MESSAGE_COMPLETE_TYPE = 'rollcodex:vtt-connection-complete';
@@ -160,7 +167,7 @@ const ROLLCODEX_I18N_FALLBACKS = {
     'ROLLCODEX.settings.actionsDivider': 'Primary actions',
     'ROLLCODEX.settings.preferencesDivider': 'Preferences',
     'ROLLCODEX.settings.appUrlName': 'Application address',
-    'ROLLCODEX.settings.appUrlHint': 'RollCodex address to open when linking this world. Keep http://localhost:5173 for local testing.',
+    'ROLLCODEX.settings.appUrlHint': 'RollCodex address to open when linking this world. Default: https://rollcodex.app. Use a local URL only for development.',
     'ROLLCODEX.settings.autoEnabledName': 'Automatic end-of-session capture',
     'ROLLCODEX.settings.autoEnabledHint': 'Attempts a capture when the world closes and after chat inactivity. The End session button remains the priority action.',
     'ROLLCODEX.settings.liveMetricsName': 'Local live ranking',
@@ -183,7 +190,7 @@ const ROLLCODEX_I18N_FALLBACKS = {
     'ROLLCODEX.settings.actionsDivider': 'Actions principales',
     'ROLLCODEX.settings.preferencesDivider': 'Preferences',
     'ROLLCODEX.settings.appUrlName': 'Adresse de l application',
-    'ROLLCODEX.settings.appUrlHint': 'Adresse RollCodex a ouvrir pour lier ce monde. Gardez http://localhost:5173 en test local.',
+    'ROLLCODEX.settings.appUrlHint': 'Adresse RollCodex a ouvrir pour lier ce monde. Par defaut : https://rollcodex.app. Utilisez une URL locale uniquement en developpement.',
     'ROLLCODEX.settings.autoEnabledName': 'Capture auto de fin de session',
     'ROLLCODEX.settings.autoEnabledHint': 'Tente une capture quand le monde se ferme et apres inactivite du chat. Le bouton Terminer la session reste prioritaire.',
     'ROLLCODEX.settings.liveMetricsName': 'Classement live local',
@@ -332,6 +339,14 @@ function normalizeAppUrl(value) {
   url.search = '';
   url.hash = '';
   return url.toString().replace(/\/+$/, '');
+}
+
+function isLegacyLocalDefaultAppUrl(value) {
+  try {
+    return LEGACY_LOCAL_ROLLCODEX_APP_URLS.has(normalizeAppUrl(value));
+  } catch (_error) {
+    return false;
+  }
 }
 
 function getLoggableEndpoint(endpoint) {
@@ -1347,6 +1362,21 @@ function getStoredConnection() {
 
 function hasStoredConnection(connection = getStoredConnection()) {
   return Boolean(connection.connectionId && connection.connectionSecret && connection.endpoint);
+}
+
+function hasStoredConnectionData(connection = getStoredConnection()) {
+  return Boolean(connection.connectionId
+    || connection.connectionSecret
+    || connection.endpoint
+    || connection.mappingProfileEndpoint
+    || connection.workspaceLabel
+    || connection.systemId
+    || connection.systemLabel
+    || connection.campaignId
+    || connection.campaignLabel
+    || connection.tableId
+    || connection.tableLabel
+    || connection.connectedAt);
 }
 
 function getAutoSnapshotSettings() {
@@ -2693,6 +2723,14 @@ async function migrateLegacyConnectionSecret() {
   await game.settings.set(MODULE_ID, SETTINGS.connectionSecret, '');
 }
 
+async function migrateLegacyDefaultAppUrl() {
+  if (!game.user?.isGM) return;
+  if (!isLegacyLocalDefaultAppUrl(game.settings.get(MODULE_ID, SETTINGS.appUrl))) return;
+  if (hasStoredConnectionData() || hasPendingPairingState()) return;
+
+  await game.settings.set(MODULE_ID, SETTINGS.appUrl, ROLLCODEX_PRODUCTION_APP_URL);
+}
+
 function getPendingPairing() {
   return {
     connectionId: game.settings.get(MODULE_ID, SETTINGS.pendingConnectionId),
@@ -2706,6 +2744,15 @@ function getPendingPairing() {
 
 function hasPendingPairingData(pairing = getPendingPairing()) {
   return Boolean(pairing.connectionId && pairing.connectionSecret && pairing.state);
+}
+
+function hasPendingPairingState(pairing = getPendingPairing()) {
+  return Boolean(pairing.connectionId
+    || pairing.connectionSecret
+    || pairing.state
+    || pairing.pairingStatusEndpoint
+    || pairing.pairingCode
+    || pairing.pairingUrl);
 }
 
 async function savePendingPairing({ connectionId, connectionSecret, state, pairingStatusEndpoint, pairingCode, pairingUrl }) {
@@ -4137,6 +4184,11 @@ Hooks.once('ready', async () => {
   globalThis.inferRollCodexActorKind = inferActorKind;
 
   if (!game.user?.isGM) return;
+  try {
+    await migrateLegacyDefaultAppUrl();
+  } catch (error) {
+    console.warn('[RollCodex] Legacy app URL migration failed', error);
+  }
   try {
     await migrateLegacyConnectionSecret();
   } catch (error) {

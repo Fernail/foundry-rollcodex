@@ -2,7 +2,13 @@
 
 const MODULE_ID = 'rollcodex';
 const MODULE_VERSION = '0.1.14';
-const DEFAULT_ROLLCODEX_APP_URL = 'http://localhost:5173';
+const ROLLCODEX_PRODUCTION_APP_URL = 'https://rollcodex.app';
+const DEFAULT_ROLLCODEX_APP_URL = ROLLCODEX_PRODUCTION_APP_URL;
+const LEGACY_LOCAL_ROLLCODEX_APP_PORT = '5173';
+const LEGACY_LOCAL_ROLLCODEX_APP_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
+const LEGACY_LOCAL_ROLLCODEX_APP_URLS = new Set(
+  LEGACY_LOCAL_ROLLCODEX_APP_HOSTS.map((host) => `http://${host}:${LEGACY_LOCAL_ROLLCODEX_APP_PORT}`),
+);
 const MESSAGE_HANDSHAKE_TYPE = 'rollcodex:vtt-pairing-handshake';
 const MESSAGE_HANDSHAKE_RESPONSE_TYPE = 'rollcodex:vtt-pairing-handshake-response';
 const MESSAGE_COMPLETE_TYPE = 'rollcodex:vtt-connection-complete';
@@ -160,11 +166,11 @@ function normalizeAppUrl(value) {
   try {
     url = new URL(withProtocol);
   } catch (_error) {
-    throw new Error('Adresse RollCodex invalide. Utilisez HTTPS en production ou http://localhost en test local.');
+    throw new Error('Adresse RollCodex invalide. Utilisez HTTPS en production ou une URL locale HTTP en developpement.');
   }
 
   if (!['https:', 'http:'].includes(url.protocol)) {
-    throw new Error('Adresse RollCodex invalide. Utilisez HTTPS en production ou http://localhost en test local.');
+    throw new Error('Adresse RollCodex invalide. Utilisez HTTPS en production ou une URL locale HTTP en developpement.');
   }
 
   if (url.username || url.password) {
@@ -173,12 +179,20 @@ function normalizeAppUrl(value) {
 
   const localHttpHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
   if (url.protocol === 'http:' && !localHttpHosts.has(url.hostname.toLowerCase())) {
-    throw new Error('Adresse RollCodex non securisee. Utilisez HTTPS, sauf pour http://localhost en test local.');
+    throw new Error('Adresse RollCodex non securisee. Utilisez HTTPS, sauf pour une URL locale HTTP en developpement.');
   }
 
   url.search = '';
   url.hash = '';
   return url.toString().replace(/\/+$/, '');
+}
+
+function isLegacyLocalDefaultAppUrl(value) {
+  try {
+    return LEGACY_LOCAL_ROLLCODEX_APP_URLS.has(normalizeAppUrl(value));
+  } catch (_error) {
+    return false;
+  }
 }
 
 function getLoggableEndpoint(endpoint) {
@@ -693,6 +707,17 @@ function getStoredConnection() {
 
 function hasStoredConnection(connection = getStoredConnection()) {
   return Boolean(connection.connectionId && connection.connectionSecret && connection.endpoint);
+}
+
+function hasStoredConnectionData(connection = getStoredConnection()) {
+  return Boolean(connection.connectionId
+    || connection.connectionSecret
+    || connection.endpoint
+    || connection.mappingProfileEndpoint
+    || connection.workspaceLabel
+    || connection.systemId
+    || connection.systemLabel
+    || connection.connectedAt);
 }
 
 function getAutoSnapshotSettings() {
@@ -1260,6 +1285,14 @@ async function migrateLegacyConnectionSecret() {
   await game.settings.set(MODULE_ID, SETTINGS.connectionSecret, '');
 }
 
+async function migrateLegacyDefaultAppUrl() {
+  if (!game.user?.isGM) return;
+  if (!isLegacyLocalDefaultAppUrl(game.settings.get(MODULE_ID, SETTINGS.appUrl))) return;
+  if (hasStoredConnectionData() || hasPendingPairingState()) return;
+
+  await game.settings.set(MODULE_ID, SETTINGS.appUrl, ROLLCODEX_PRODUCTION_APP_URL);
+}
+
 function getPendingPairing() {
   return {
     connectionId: game.settings.get(MODULE_ID, SETTINGS.pendingConnectionId),
@@ -1268,6 +1301,14 @@ function getPendingPairing() {
     pairingStatusEndpoint: game.settings.get(MODULE_ID, SETTINGS.pendingPairingStatusEndpoint),
     pairingCode: game.settings.get(MODULE_ID, SETTINGS.pendingPairingCode),
   };
+}
+
+function hasPendingPairingState(pairing = getPendingPairing()) {
+  return Boolean(pairing.connectionId
+    || pairing.connectionSecret
+    || pairing.state
+    || pairing.pairingStatusEndpoint
+    || pairing.pairingCode);
 }
 
 async function savePendingPairing({ connectionId, connectionSecret, state, pairingStatusEndpoint, pairingCode }) {
@@ -2448,6 +2489,11 @@ Hooks.once('ready', async () => {
   }
 
   if (!game.user?.isGM) return;
+  try {
+    await migrateLegacyDefaultAppUrl();
+  } catch (error) {
+    console.warn('[RollCodex] Legacy app URL migration failed', error);
+  }
   try {
     await migrateLegacyConnectionSecret();
   } catch (error) {
