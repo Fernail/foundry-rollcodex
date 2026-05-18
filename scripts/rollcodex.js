@@ -153,6 +153,55 @@ const floatingPanelState = {
   controlsObserver: null,
 };
 
+const ROLLCODEX_I18N_FALLBACKS = {
+  en: {
+    'ROLLCODEX.settings.introTitle': 'Campaign registry',
+    'ROLLCODEX.settings.introBody': 'Connection, live panel, and captures stay attached to this Foundry world.',
+    'ROLLCODEX.settings.actionsDivider': 'Primary actions',
+    'ROLLCODEX.settings.preferencesDivider': 'Preferences',
+    'ROLLCODEX.settings.appUrlName': 'Application address',
+    'ROLLCODEX.settings.appUrlHint': 'RollCodex address to open when linking this world. Keep http://localhost:5173 for local testing.',
+    'ROLLCODEX.settings.autoEnabledName': 'Automatic end-of-session capture',
+    'ROLLCODEX.settings.autoEnabledHint': 'Attempts a capture when the world closes and after chat inactivity. The End session button remains the priority action.',
+    'ROLLCODEX.settings.liveMetricsName': 'Local live ranking',
+    'ROLLCODEX.settings.liveMetricsHint': 'Shows session metrics in Foundry without sending these counters to RollCodex.',
+    'ROLLCODEX.settings.idleMinutesName': 'Idle time before auto capture',
+    'ROLLCODEX.settings.idleMinutesHint': 'Duration without a new message before automatic capture. 0 disables this trigger.',
+    'ROLLCODEX.settings.connectionMenuName': 'Registry connection',
+    'ROLLCODEX.settings.connectionMenuLabel': 'Configure',
+    'ROLLCODEX.settings.connectionMenuHint': 'Link this Foundry world to a RollCodex registry, then verify the associated campaign and table.',
+    'ROLLCODEX.settings.livePanelMenuName': 'Session panel',
+    'ROLLCODEX.settings.livePanelMenuLabel': 'Open',
+    'ROLLCODEX.settings.livePanelMenuHint': 'View the mapping profile, session counters, and captures ready to send.',
+    'ROLLCODEX.settings.liveMetricsMenuName': 'Local live journal',
+    'ROLLCODEX.settings.liveMetricsMenuLabel': 'Review',
+    'ROLLCODEX.settings.liveMetricsMenuHint': 'Show local rankings by player or character for the current session.',
+  },
+  fr: {
+    'ROLLCODEX.settings.introTitle': 'Registre de campagne',
+    'ROLLCODEX.settings.introBody': 'Connexion, panneau live et captures restent attaches a ce monde Foundry.',
+    'ROLLCODEX.settings.actionsDivider': 'Actions principales',
+    'ROLLCODEX.settings.preferencesDivider': 'Preferences',
+    'ROLLCODEX.settings.appUrlName': 'Adresse de l application',
+    'ROLLCODEX.settings.appUrlHint': 'Adresse RollCodex a ouvrir pour lier ce monde. Gardez http://localhost:5173 en test local.',
+    'ROLLCODEX.settings.autoEnabledName': 'Capture auto de fin de session',
+    'ROLLCODEX.settings.autoEnabledHint': 'Tente une capture quand le monde se ferme et apres inactivite du chat. Le bouton Terminer la session reste prioritaire.',
+    'ROLLCODEX.settings.liveMetricsName': 'Classement live local',
+    'ROLLCODEX.settings.liveMetricsHint': 'Affiche les metriques de session dans Foundry sans envoyer ces compteurs a RollCodex.',
+    'ROLLCODEX.settings.idleMinutesName': 'Inactivite avant capture auto',
+    'ROLLCODEX.settings.idleMinutesHint': 'Duree sans nouveau message avant capture automatique. 0 desactive ce declenchement.',
+    'ROLLCODEX.settings.connectionMenuName': 'Connexion au registre',
+    'ROLLCODEX.settings.connectionMenuLabel': 'Configurer',
+    'ROLLCODEX.settings.connectionMenuHint': 'Lier ce monde Foundry a un registre RollCodex, puis verifier la campagne et la table associees.',
+    'ROLLCODEX.settings.livePanelMenuName': 'Panneau de session',
+    'ROLLCODEX.settings.livePanelMenuLabel': 'Ouvrir',
+    'ROLLCODEX.settings.livePanelMenuHint': 'Voir le profil de mapping, les compteurs de session et les captures pretes a envoyer.',
+    'ROLLCODEX.settings.liveMetricsMenuName': 'Journal live local',
+    'ROLLCODEX.settings.liveMetricsMenuLabel': 'Consulter',
+    'ROLLCODEX.settings.liveMetricsMenuHint': 'Afficher les classements locaux par joueur ou personnage pour la session courante.',
+  },
+};
+
 function createEmptyLiveMetricTotals() {
   return {
     messages: 0,
@@ -170,13 +219,16 @@ function registerSetting(key, options) {
     config: options.config ?? false,
     type: options.type || String,
     default: options.default ?? '',
-    name: options.name || key,
-    hint: options.hint || '',
+    name: localizeRollCodex(options.name || key),
+    hint: localizeRollCodex(options.hint || ''),
   });
 }
 
 function localizeRollCodex(key) {
-  return game.i18n?.localize?.(key) || key;
+  const localized = game.i18n?.localize?.(key) || key;
+  if (localized !== key) return localized;
+  const lang = String(game.i18n?.lang || '').toLowerCase().startsWith('fr') ? 'fr' : 'en';
+  return ROLLCODEX_I18N_FALLBACKS[lang]?.[key] || ROLLCODEX_I18N_FALLBACKS.en[key] || key;
 }
 
 function findRollCodexSettingsGroup(tab, selector) {
@@ -4034,27 +4086,27 @@ Hooks.once('init', () => {
     }));
 
   game.settings.registerMenu(MODULE_ID, 'connectionMenu', {
-    name: 'ROLLCODEX.settings.connectionMenuName',
-    label: 'ROLLCODEX.settings.connectionMenuLabel',
-    hint: 'ROLLCODEX.settings.connectionMenuHint',
+    name: localizeRollCodex('ROLLCODEX.settings.connectionMenuName'),
+    label: localizeRollCodex('ROLLCODEX.settings.connectionMenuLabel'),
+    hint: localizeRollCodex('ROLLCODEX.settings.connectionMenuHint'),
     icon: 'fas fa-link',
     type: RollCodexConnectionApp,
     restricted: true,
   });
 
   game.settings.registerMenu(MODULE_ID, 'livePanelMenu', {
-    name: 'ROLLCODEX.settings.livePanelMenuName',
-    label: 'ROLLCODEX.settings.livePanelMenuLabel',
-    hint: 'ROLLCODEX.settings.livePanelMenuHint',
+    name: localizeRollCodex('ROLLCODEX.settings.livePanelMenuName'),
+    label: localizeRollCodex('ROLLCODEX.settings.livePanelMenuLabel'),
+    hint: localizeRollCodex('ROLLCODEX.settings.livePanelMenuHint'),
     icon: 'fas fa-gauge-high',
     type: RollCodexLivePanel,
     restricted: true,
   });
 
   game.settings.registerMenu(MODULE_ID, 'liveMetricsMenu', {
-    name: 'ROLLCODEX.settings.liveMetricsMenuName',
-    label: 'ROLLCODEX.settings.liveMetricsMenuLabel',
-    hint: 'ROLLCODEX.settings.liveMetricsMenuHint',
+    name: localizeRollCodex('ROLLCODEX.settings.liveMetricsMenuName'),
+    label: localizeRollCodex('ROLLCODEX.settings.liveMetricsMenuLabel'),
+    hint: localizeRollCodex('ROLLCODEX.settings.liveMetricsMenuHint'),
     icon: 'fas fa-chart-bar',
     type: RollCodexLiveMetricsApp,
     restricted: false,

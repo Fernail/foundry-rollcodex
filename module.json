@@ -15,6 +15,18 @@
       "name": "RollCodex"
     }
   ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    },
+    {
+      "lang": "fr",
+      "name": "Français",
+      "path": "lang/fr.json"
+    }
+  ],
   "esmodules": [
     "scripts/rollcodex.js",
     "scripts/rollcodex-measures.js"
