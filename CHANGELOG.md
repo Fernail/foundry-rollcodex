@@ -1,3 +1,17 @@
+## 0.1.48 (2026-05-19)
+
+- Fix: restaure le raccourci RollCodex dans le rail gauche Foundry avec une
+  injection persistante, pour garder le bouton visible et cliquable apres les
+  rerenders des controles de scene.
+
+## 0.1.47 (2026-05-19)
+
+- Chore: publication du manifeste Foundry en 0.1.47.
+
+## 0.1.46 (2026-05-18)
+
+- Chore: publication du manifeste Foundry en 0.1.46.
+
 ## 0.1.45 (2026-05-18)
 
 - Feat: nouveau raccourci dans la barre de scene controls Foundry (gauche)
