@@ -1461,6 +1461,33 @@ async function toggleFloatingPanelHidden(force) {
   const nextHidden = typeof force === 'boolean' ? force : !settings.hidden;
   await patchFloatingPanelSettings({ hidden: nextHidden });
   renderFloatingPanel();
+  syncFloatingPanelToggleButton();
+}
+
+function syncFloatingPanelToggleButton(root) {
+  if (typeof document === 'undefined') return;
+  const hidden = Boolean(game?.settings?.get?.(MODULE_ID, SETTINGS.floatingPanelHidden));
+  const button = root?.querySelector?.('[data-rollcodex-floating-toggle]')
+    || document.querySelector('[data-rollcodex-floating-toggle]');
+  if (!button) return;
+  button.classList.toggle('active', !hidden);
+  button.setAttribute('aria-pressed', String(!hidden));
+  button.title = hidden ? 'Afficher le panneau RollCodex' : 'Masquer le panneau RollCodex';
+  button.setAttribute('aria-label', button.title);
+}
+
+function createFloatingPanelToggleButton() {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'control-tool';
+  button.dataset.rollcodexFloatingToggle = 'true';
+  button.innerHTML = '<i class="fas fa-dice-d20"></i>';
+  button.addEventListener('click', () => {
+    toggleFloatingPanelHidden().catch((error) => {
+      console.warn('[RollCodex] Toggle floating panel failed', error);
+    });
+  });
+  return button;
 }
 
 function setFloatingPanelStatus(status) {
@@ -3870,44 +3897,15 @@ Hooks.once('ready', async () => {
   }
 });
 
-Hooks.on('getSceneControlButtons', (controls) => {
-  if (typeof game === 'undefined' || !game.settings?.get) return;
-  const hidden = Boolean(game.settings.get(MODULE_ID, SETTINGS.floatingPanelHidden));
-  const handleToggle = () => {
-    toggleFloatingPanelHidden().catch((error) => {
-      console.warn('[RollCodex] Toggle floating panel failed', error);
-    });
-  };
-  const tool = {
-    name: 'rollcodex-toggle-panel',
-    title: hidden ? 'Afficher le panneau RollCodex' : 'Masquer le panneau RollCodex',
-    icon: 'fas fa-dice-d20',
-    button: true,
-    toggle: true,
-    active: !hidden,
-    visible: true,
-    onClick: handleToggle,
-    onChange: handleToggle,
-  };
-  const category = {
-    name: 'rollcodex',
-    title: 'RollCodex',
-    icon: 'fas fa-dice-d20',
-    layer: 'controls',
-    visible: true,
-    button: true,
-    onClick: handleToggle,
-    onChange: handleToggle,
-    activeTool: tool.name,
-  };
-
-  if (Array.isArray(controls)) {
-    category.tools = [tool];
-    controls.push(category);
-    return;
+Hooks.on('renderSceneControls', (_app, html) => {
+  if (typeof document === 'undefined') return;
+  const root = html?.[0] || html?.element?.[0] || _app?.element?.[0];
+  if (!root) return;
+  let button = root.querySelector('[data-rollcodex-floating-toggle]');
+  if (!button) {
+    const controls = root.querySelector('.control-tools') || root;
+    button = createFloatingPanelToggleButton();
+    controls.prepend(button);
   }
-  if (controls && typeof controls === 'object') {
-    category.tools = { [tool.name]: tool };
-    controls.rollcodex = category;
-  }
+  syncFloatingPanelToggleButton(root);
 });
