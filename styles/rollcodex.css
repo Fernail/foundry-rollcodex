@@ -1246,6 +1246,18 @@
   opacity: 0.48;
 }
 
+.rollcodex-floating-toggle {
+  cursor: pointer;
+}
+
+.rollcodex-floating-toggle.active i {
+  color: #c79a4b;
+}
+
+.rollcodex-floating-toggle[aria-pressed="false"] {
+  opacity: 0.72;
+}
+
 @media (max-width: 680px) {
   .rollcodex-floating-panel {
     max-height: min(72vh, 480px);

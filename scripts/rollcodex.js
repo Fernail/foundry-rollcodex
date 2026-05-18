@@ -18,6 +18,7 @@ const LIVE_METRICS_RECENT_EVENTS_LIMIT = 12;
 const LIVE_METRICS_REFRESH_MS = 250;
 const ROLLCODEX_MAPPING_VERSION = 1;
 const FLOATING_PANEL_ID = 'rollcodex-floating-panel';
+const FLOATING_PANEL_CONTROL_ID = 'rollcodex-floating-panel-toggle';
 
 const ACTOR_KIND_OPTIONS = [
   { value: 'auto', label: 'Auto' },
@@ -148,6 +149,7 @@ const liveMetricsState = {
 
 const floatingPanelState = {
   status: '',
+  controlsObserver: null,
 };
 
 function createEmptyLiveMetricTotals() {
@@ -1467,27 +1469,95 @@ async function toggleFloatingPanelHidden(force) {
 function syncFloatingPanelToggleButton(root) {
   if (typeof document === 'undefined') return;
   const hidden = Boolean(game?.settings?.get?.(MODULE_ID, SETTINGS.floatingPanelHidden));
-  const button = root?.querySelector?.('[data-rollcodex-floating-toggle]')
-    || document.querySelector('[data-rollcodex-floating-toggle]');
-  if (!button) return;
-  button.classList.toggle('active', !hidden);
-  button.setAttribute('aria-pressed', String(!hidden));
-  button.title = hidden ? 'Afficher le panneau RollCodex' : 'Masquer le panneau RollCodex';
-  button.setAttribute('aria-label', button.title);
+  const buttons = root?.querySelectorAll?.('[data-rollcodex-floating-toggle]')
+    || document.querySelectorAll('[data-rollcodex-floating-toggle]');
+  if (!buttons?.length) return;
+  buttons.forEach((button) => {
+    button.classList.toggle('active', !hidden);
+    button.setAttribute('aria-pressed', String(!hidden));
+    button.title = hidden ? 'Afficher le panneau RollCodex' : 'Masquer le panneau RollCodex';
+    button.setAttribute('aria-label', button.title);
+  });
 }
 
 function createFloatingPanelToggleButton() {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'control-tool';
+  const button = document.createElement('li');
+  button.id = FLOATING_PANEL_CONTROL_ID;
+  button.className = 'scene-control control-tool rollcodex-floating-toggle';
+  button.dataset.control = 'rollcodex';
+  button.dataset.tool = 'rollcodex-floating-toggle';
   button.dataset.rollcodexFloatingToggle = 'true';
+  button.role = 'button';
+  button.tabIndex = 0;
   button.innerHTML = '<i class="fas fa-dice-d20"></i>';
-  button.addEventListener('click', () => {
+  const handleToggle = (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
     toggleFloatingPanelHidden().catch((error) => {
       console.warn('[RollCodex] Toggle floating panel failed', error);
     });
+  };
+  button.addEventListener('click', handleToggle);
+  button.addEventListener('mousedown', (event) => event.stopPropagation());
+  button.addEventListener('pointerdown', (event) => event.stopPropagation());
+  button.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    handleToggle(event);
   });
   return button;
+}
+
+function getFloatingPanelControlsContainer(root = document) {
+  if (typeof document === 'undefined') return null;
+  const scope = root?.querySelector ? root : document;
+  const selectors = [
+    '#controls .main-controls',
+    '#controls ol.control-tools',
+    '#ui-left #controls .main-controls',
+    '#ui-left #controls ol.control-tools',
+    '#scene-controls .main-controls',
+    '#scene-controls ol.control-tools',
+    '#ui-left .main-controls',
+    '#ui-left ol.control-tools',
+    '.main-controls',
+    'ol.control-tools',
+    'menu.control-tools',
+  ];
+  for (const selector of selectors) {
+    const container = scope.querySelector(selector) || document.querySelector(selector);
+    if (container) return container;
+  }
+  return null;
+}
+
+function installFloatingPanelControlButton(root) {
+  if (typeof document === 'undefined') return;
+  const existing = document.getElementById(FLOATING_PANEL_CONTROL_ID)
+    || document.querySelector('[data-rollcodex-floating-toggle]');
+  if (existing && document.body.contains(existing)) {
+    syncFloatingPanelToggleButton(document);
+    return;
+  }
+  const container = getFloatingPanelControlsContainer(root);
+  if (!container) return;
+  const button = createFloatingPanelToggleButton();
+  const tokenControl = container.querySelector('[data-control="token"]');
+  if (tokenControl?.after) {
+    tokenControl.after(button);
+  } else {
+    container.prepend(button);
+  }
+  syncFloatingPanelToggleButton(document);
+}
+
+function startFloatingPanelControlObserver() {
+  if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return;
+  installFloatingPanelControlButton(document);
+  if (floatingPanelState.controlsObserver) return;
+  const target = document.getElementById('ui-left') || document.getElementById('interface') || document.body;
+  const observer = new MutationObserver(() => installFloatingPanelControlButton(document));
+  observer.observe(target, { childList: true, subtree: true });
+  floatingPanelState.controlsObserver = observer;
 }
 
 function setFloatingPanelStatus(status) {
@@ -3862,6 +3932,7 @@ Hooks.once('ready', async () => {
     rebuildLiveMetricsFromChatHistory({ reset: true });
   }
   renderFloatingPanel();
+  startFloatingPanelControlObserver();
 
   globalThis.refreshLivePanels = refreshLivePanels;
   globalThis.refreshRollCodexFloatingPanel = renderFloatingPanel;
@@ -3899,13 +3970,6 @@ Hooks.once('ready', async () => {
 
 Hooks.on('renderSceneControls', (_app, html) => {
   if (typeof document === 'undefined') return;
-  const root = html?.[0] || html?.element?.[0] || _app?.element?.[0];
-  if (!root) return;
-  let button = root.querySelector('[data-rollcodex-floating-toggle]');
-  if (!button) {
-    const controls = root.querySelector('.control-tools') || root;
-    button = createFloatingPanelToggleButton();
-    controls.prepend(button);
-  }
-  syncFloatingPanelToggleButton(root);
+  const root = html?.nodeType === 1 ? html : html?.[0] || html?.element?.[0] || _app?.element?.[0] || document;
+  installFloatingPanelControlButton(root);
 });
