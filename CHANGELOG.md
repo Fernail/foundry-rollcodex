@@ -1,3 +1,13 @@
+## 0.1.50 (2026-05-19)
+
+- Fix: ajoute le toggle du bandeau RollCodex via l API officielle
+  `getSceneControlButtons` sur les outils de chaque couche Foundry v14, et
+  corrige le fallback DOM pour utiliser les boutons `control ui-control tool`.
+
+## 0.1.49 (2026-05-19)
+
+- Chore: publication du manifeste Foundry en 0.1.49.
+
 ## 0.1.48 (2026-05-19)
 
 - Fix: restaure le raccourci RollCodex dans le rail gauche Foundry avec une

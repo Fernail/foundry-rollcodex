@@ -1,7 +1,7 @@
 /* global Dialog, FormApplication, Hooks, foundry, game, ui */
 
 const MODULE_ID = 'rollcodex';
-const MODULE_VERSION = '0.1.49';
+const MODULE_VERSION = '0.1.50';
 const DEFAULT_ROLLCODEX_APP_URL = 'http://localhost:5173';
 const MESSAGE_HANDSHAKE_TYPE = 'rollcodex:vtt-pairing-handshake';
 const MESSAGE_HANDSHAKE_RESPONSE_TYPE = 'rollcodex:vtt-pairing-handshake-response';
@@ -19,6 +19,7 @@ const LIVE_METRICS_REFRESH_MS = 250;
 const ROLLCODEX_MAPPING_VERSION = 1;
 const FLOATING_PANEL_ID = 'rollcodex-floating-panel';
 const FLOATING_PANEL_CONTROL_ID = 'rollcodex-floating-panel-toggle';
+const FLOATING_PANEL_TOOL_ID = 'rollcodexFloatingToggle';
 
 const ACTOR_KIND_OPTIONS = [
   { value: 'auto', label: 'Auto' },
@@ -1469,8 +1470,8 @@ async function toggleFloatingPanelHidden(force) {
 function syncFloatingPanelToggleButton(root) {
   if (typeof document === 'undefined') return;
   const hidden = Boolean(game?.settings?.get?.(MODULE_ID, SETTINGS.floatingPanelHidden));
-  const buttons = root?.querySelectorAll?.('[data-rollcodex-floating-toggle]')
-    || document.querySelectorAll('[data-rollcodex-floating-toggle]');
+  const selector = `[data-rollcodex-floating-toggle], button.tool[data-tool="${FLOATING_PANEL_TOOL_ID}"]`;
+  const buttons = root?.querySelectorAll?.(selector) || document.querySelectorAll(selector);
   if (!buttons?.length) return;
   buttons.forEach((button) => {
     button.classList.toggle('active', !hidden);
@@ -1481,15 +1482,15 @@ function syncFloatingPanelToggleButton(root) {
 }
 
 function createFloatingPanelToggleButton() {
-  const button = document.createElement('li');
-  button.id = FLOATING_PANEL_CONTROL_ID;
-  button.className = 'scene-control control-tool rollcodex-floating-toggle';
-  button.dataset.control = 'rollcodex';
-  button.dataset.tool = 'rollcodex-floating-toggle';
+  const item = document.createElement('li');
+  item.id = FLOATING_PANEL_CONTROL_ID;
+  item.style.anchorName = '--tool-rollcodex-floating-toggle';
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'control ui-control tool icon fa-solid fa-dice-d20 rollcodex-floating-toggle';
+  button.dataset.tool = FLOATING_PANEL_TOOL_ID;
   button.dataset.rollcodexFloatingToggle = 'true';
-  button.role = 'button';
-  button.tabIndex = 0;
-  button.innerHTML = '<i class="fas fa-dice-d20"></i>';
   const handleToggle = (event) => {
     event?.preventDefault?.();
     event?.stopPropagation?.();
@@ -1504,13 +1505,18 @@ function createFloatingPanelToggleButton() {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     handleToggle(event);
   });
-  return button;
+  item.appendChild(button);
+  return item;
 }
 
 function getFloatingPanelControlsContainer(root = document) {
   if (typeof document === 'undefined') return null;
   const scope = root?.querySelector ? root : document;
   const selectors = [
+    '#scene-controls-tools menu',
+    '#scene-controls [id="scene-controls-tools"] menu',
+    '#scene-controls-layers menu',
+    '#scene-controls [id="scene-controls-layers"] menu',
     '#controls .main-controls',
     '#controls ol.control-tools',
     '#ui-left #controls .main-controls',
@@ -1533,21 +1539,71 @@ function getFloatingPanelControlsContainer(root = document) {
 function installFloatingPanelControlButton(root) {
   if (typeof document === 'undefined') return;
   const existing = document.getElementById(FLOATING_PANEL_CONTROL_ID)
-    || document.querySelector('[data-rollcodex-floating-toggle]');
+    || document.querySelector(`[data-rollcodex-floating-toggle], button.tool[data-tool="${FLOATING_PANEL_TOOL_ID}"]`);
   if (existing && document.body.contains(existing)) {
     syncFloatingPanelToggleButton(document);
     return;
   }
   const container = getFloatingPanelControlsContainer(root);
   if (!container) return;
-  const button = createFloatingPanelToggleButton();
-  const tokenControl = container.querySelector('[data-control="token"]');
-  if (tokenControl?.after) {
-    tokenControl.after(button);
+  const item = createFloatingPanelToggleButton();
+  const selectTool = container.querySelector('[data-tool="select"]')?.closest('li');
+  if (selectTool?.after) {
+    selectTool.after(item);
   } else {
-    container.prepend(button);
+    container.prepend(item);
   }
   syncFloatingPanelToggleButton(document);
+}
+
+function createFloatingPanelSceneTool(order = -1000) {
+  const handleToggle = (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    toggleFloatingPanelHidden().catch((error) => {
+      console.warn('[RollCodex] Toggle floating panel failed', error);
+    });
+  };
+  return {
+    name: FLOATING_PANEL_TOOL_ID,
+    order,
+    title: 'Afficher / masquer le panneau RollCodex',
+    icon: 'fa-solid fa-dice-d20',
+    button: true,
+    visible: true,
+    onChange: handleToggle,
+    onClick: handleToggle,
+  };
+}
+
+function addFloatingPanelToolToSceneControls(controls) {
+  if (Array.isArray(controls)) {
+    controls.forEach((control) => {
+      if (!control?.tools) return;
+      if (Array.isArray(control.tools)) {
+        if (control.tools.some((tool) => tool?.name === FLOATING_PANEL_TOOL_ID)) return;
+        control.tools.unshift(createFloatingPanelSceneTool());
+        return;
+      }
+      if (typeof control.tools === 'object') {
+        control.tools[FLOATING_PANEL_TOOL_ID] = createFloatingPanelSceneTool();
+      }
+    });
+    return;
+  }
+
+  if (!controls || typeof controls !== 'object') return;
+  Object.values(controls).forEach((control) => {
+    if (!control || control.visible === false) return;
+    control.tools ??= {};
+    if (Array.isArray(control.tools)) {
+      if (!control.tools.some((tool) => tool?.name === FLOATING_PANEL_TOOL_ID)) {
+        control.tools.unshift(createFloatingPanelSceneTool());
+      }
+      return;
+    }
+    control.tools[FLOATING_PANEL_TOOL_ID] = createFloatingPanelSceneTool();
+  });
 }
 
 function startFloatingPanelControlObserver() {
@@ -3925,6 +3981,8 @@ Hooks.once('init', () => {
 
   registerMappingSheetButtons();
 });
+
+Hooks.on('getSceneControlButtons', addFloatingPanelToolToSceneControls);
 
 Hooks.once('ready', async () => {
   registerLiveMetricsHooks();
