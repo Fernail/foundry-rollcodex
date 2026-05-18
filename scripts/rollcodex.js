@@ -175,6 +175,84 @@ function registerSetting(key, options) {
   });
 }
 
+function localizeRollCodex(key) {
+  return game.i18n?.localize?.(key) || key;
+}
+
+function findRollCodexSettingsGroup(tab, selector) {
+  return tab.querySelector(selector)?.closest('.form-group') || null;
+}
+
+function insertRollCodexSettingsDivider(tab, className, beforeElement, labelKey) {
+  if (!beforeElement || tab.querySelector(`.${className}`)) return;
+  const divider = document.createElement('div');
+  divider.className = `rollcodex-settings-divider ${className}`;
+  divider.textContent = localizeRollCodex(labelKey);
+  tab.insertBefore(divider, beforeElement);
+}
+
+function enhanceRollCodexSettingsConfig(_app, element) {
+  const root = element instanceof HTMLElement ? element : element?.[0];
+  const tab = root?.querySelector?.('[data-category="rollcodex"]');
+  if (!tab) return;
+
+  tab.classList.add('rollcodex-settings-panel');
+
+  const actionGroups = [
+    ['button[data-key="rollcodex.connectionMenu"]', 'rollcodex-settings-card rollcodex-settings-card--primary'],
+    ['button[data-key="rollcodex.livePanelMenu"]', 'rollcodex-settings-card'],
+    ['button[data-key="rollcodex.liveMetricsMenu"]', 'rollcodex-settings-card'],
+  ].map(([selector, classNames]) => {
+    const group = findRollCodexSettingsGroup(tab, selector);
+    if (group) group.classList.add(...classNames.split(' '));
+    return group;
+  }).filter(Boolean);
+
+  const settingGroups = [
+    '[name="rollcodex.appUrl"]',
+    '[name="rollcodex.autoSnapshotEnabled"]',
+    '[name="rollcodex.autoSnapshotIdleMinutes"]',
+    '[name="rollcodex.liveMetricsEnabled"]',
+  ].map((selector) => {
+    const group = findRollCodexSettingsGroup(tab, selector);
+    if (group) group.classList.add('rollcodex-settings-field');
+    return group;
+  }).filter(Boolean);
+
+  const firstEntry = actionGroups[0] || settingGroups[0] || tab.querySelector('.form-group');
+  if (firstEntry && !tab.querySelector('.rollcodex-settings-intro')) {
+    const intro = document.createElement('div');
+    intro.className = 'rollcodex-settings-intro';
+
+    const icon = document.createElement('i');
+    icon.className = 'fas fa-dice-d20';
+    icon.setAttribute('inert', '');
+
+    const body = document.createElement('div');
+    const title = document.createElement('strong');
+    title.textContent = localizeRollCodex('ROLLCODEX.settings.introTitle');
+    const description = document.createElement('span');
+    description.textContent = localizeRollCodex('ROLLCODEX.settings.introBody');
+    body.append(title, description);
+
+    intro.append(icon, body);
+    tab.insertBefore(intro, firstEntry);
+  }
+
+  insertRollCodexSettingsDivider(
+    tab,
+    'rollcodex-settings-divider--actions',
+    actionGroups[0],
+    'ROLLCODEX.settings.actionsDivider',
+  );
+  insertRollCodexSettingsDivider(
+    tab,
+    'rollcodex-settings-divider--preferences',
+    settingGroups[0],
+    'ROLLCODEX.settings.preferencesDivider',
+  );
+}
+
 function normalizeAppUrl(value) {
   const trimmed = String(value || '').trim() || DEFAULT_ROLLCODEX_APP_URL;
   const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
@@ -3869,8 +3947,8 @@ Hooks.once('init', () => {
     scope: 'client',
     config: true,
     default: DEFAULT_ROLLCODEX_APP_URL,
-    name: 'Adresse RollCodex',
-    hint: 'Adresse de l application RollCodex a ouvrir pour connecter ce monde.',
+    name: 'ROLLCODEX.settings.appUrlName',
+    hint: 'ROLLCODEX.settings.appUrlHint',
   });
 
   registerSetting(SETTINGS.autoSnapshotEnabled, {
@@ -3878,8 +3956,8 @@ Hooks.once('init', () => {
     config: true,
     type: Boolean,
     default: true,
-    name: 'Captures automatiques RollCodex',
-    hint: 'Tente une capture de fin de session quand le monde ou l onglet Foundry se ferme.',
+    name: 'ROLLCODEX.settings.autoEnabledName',
+    hint: 'ROLLCODEX.settings.autoEnabledHint',
   });
 
   registerSetting(SETTINGS.autoSnapshotMinIntervalMs, {
@@ -3894,8 +3972,8 @@ Hooks.once('init', () => {
     config: true,
     type: Number,
     default: DEFAULT_IDLE_MINUTES,
-    name: 'Inactivite chat avant capture (minutes)',
-    hint: 'Si aucun message n est envoye pendant cette duree, RollCodex declenche une capture de la session courante. Mettez 0 pour desactiver.',
+    name: 'ROLLCODEX.settings.idleMinutesName',
+    hint: 'ROLLCODEX.settings.idleMinutesHint',
   });
 
   registerSetting(SETTINGS.liveMetricsEnabled, {
@@ -3903,8 +3981,8 @@ Hooks.once('init', () => {
     config: true,
     type: Boolean,
     default: true,
-    name: 'Classement live local RollCodex',
-    hint: 'Affiche un tableau live local dans Foundry. Ces metriques ne sont pas envoyees a RollCodex.',
+    name: 'ROLLCODEX.settings.liveMetricsName',
+    hint: 'ROLLCODEX.settings.liveMetricsHint',
   });
 
   registerSetting(SETTINGS.floatingPanelCollapsed, {
@@ -3953,31 +4031,33 @@ Hooks.once('init', () => {
     }));
 
   game.settings.registerMenu(MODULE_ID, 'connectionMenu', {
-    name: 'Connexion RollCodex',
-    label: 'Connecter avec RollCodex',
-    hint: 'Relier ce monde Foundry a un registre RollCodex.',
+    name: 'ROLLCODEX.settings.connectionMenuName',
+    label: 'ROLLCODEX.settings.connectionMenuLabel',
+    hint: 'ROLLCODEX.settings.connectionMenuHint',
     icon: 'fas fa-link',
     type: RollCodexConnectionApp,
     restricted: true,
   });
 
   game.settings.registerMenu(MODULE_ID, 'livePanelMenu', {
-    name: 'Tableau live RollCodex',
-    label: 'Ouvrir le panneau live',
-    hint: 'Pilotage live de session, profil de mapping et envoi de capture avec hints.',
+    name: 'ROLLCODEX.settings.livePanelMenuName',
+    label: 'ROLLCODEX.settings.livePanelMenuLabel',
+    hint: 'ROLLCODEX.settings.livePanelMenuHint',
     icon: 'fas fa-gauge-high',
     type: RollCodexLivePanel,
     restricted: true,
   });
 
   game.settings.registerMenu(MODULE_ID, 'liveMetricsMenu', {
-    name: 'Journal live local RollCodex',
-    label: 'Ouvrir le journal live',
-    hint: 'Afficher le classement et le fil local des metriques calculees depuis les messages Foundry de cette session.',
+    name: 'ROLLCODEX.settings.liveMetricsMenuName',
+    label: 'ROLLCODEX.settings.liveMetricsMenuLabel',
+    hint: 'ROLLCODEX.settings.liveMetricsMenuHint',
     icon: 'fas fa-chart-bar',
     type: RollCodexLiveMetricsApp,
     restricted: false,
   });
+
+  Hooks.on('renderSettingsConfig', enhanceRollCodexSettingsConfig);
 
   registerMappingSheetButtons();
 });

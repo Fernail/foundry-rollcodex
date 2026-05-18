@@ -382,6 +382,128 @@
   color: var(--rcx-danger);
 }
 
+#settings-config [data-category="rollcodex"].rollcodex-settings-panel.active {
+  --rcx-settings-accent: #c79a4b;
+  --rcx-settings-accent-soft: rgba(199, 154, 75, 0.12);
+  --rcx-settings-accent-border: rgba(199, 154, 75, 0.42);
+  --rcx-settings-border: rgba(255, 255, 255, 0.12);
+  --rcx-settings-surface: rgba(255, 255, 255, 0.045);
+  --rcx-settings-surface-strong: rgba(199, 154, 75, 0.08);
+  gap: 10px;
+  padding-top: 8px;
+}
+
+#settings-config aside nav.tabs > button[data-tab="rollcodex"].active {
+  background: rgba(199, 154, 75, 0.09);
+  border-bottom-color: var(--color-warm-2, #c79a4b);
+}
+
+#settings-config .rollcodex-settings-intro {
+  align-items: center;
+  background: linear-gradient(135deg, rgba(199, 154, 75, 0.14), rgba(255, 255, 255, 0.035));
+  border: 1px solid var(--rcx-settings-accent-border);
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+#settings-config .rollcodex-settings-intro > i {
+  color: var(--rcx-settings-accent);
+  font-size: 18px;
+}
+
+#settings-config .rollcodex-settings-intro > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+#settings-config .rollcodex-settings-intro strong {
+  color: var(--color-text-primary, #f1e7d0);
+  font-size: var(--font-size-15, 15px);
+}
+
+#settings-config .rollcodex-settings-intro span {
+  color: var(--color-text-secondary, #c9bfae);
+  font-size: var(--font-size-13, 13px);
+  line-height: 1.35;
+}
+
+#settings-config .rollcodex-settings-divider {
+  color: var(--rcx-settings-accent);
+  font-size: var(--font-size-11, 11px);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  margin-top: 4px;
+  text-transform: uppercase;
+}
+
+#settings-config .rollcodex-settings-card,
+#settings-config .rollcodex-settings-field {
+  background: var(--rcx-settings-surface);
+  border: 1px solid var(--rcx-settings-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+#settings-config .rollcodex-settings-card {
+  align-items: flex-start;
+  border-left: 3px solid rgba(199, 154, 75, 0.32);
+}
+
+#settings-config .rollcodex-settings-card--primary {
+  background: var(--rcx-settings-surface-strong);
+  border-color: var(--rcx-settings-accent-border);
+  border-left-color: var(--rcx-settings-accent);
+}
+
+#settings-config .rollcodex-settings-card > label,
+#settings-config .rollcodex-settings-field > label,
+#settings-config .rollcodex-settings-field > span.label {
+  line-height: 1.25;
+  padding-top: 3px;
+}
+
+#settings-config .rollcodex-settings-card .form-fields {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+#settings-config .rollcodex-settings-card button {
+  min-width: 144px;
+}
+
+#settings-config .rollcodex-settings-card button i {
+  color: var(--rcx-settings-accent);
+}
+
+#settings-config .rollcodex-settings-card .hint,
+#settings-config .rollcodex-settings-field .hint {
+  color: var(--color-text-secondary, #c9bfae);
+  line-height: 1.35;
+}
+
+#settings-config .rollcodex-settings-field input[type="url"],
+#settings-config .rollcodex-settings-field input[type="text"] {
+  min-width: min(260px, 100%);
+}
+
+#settings-config .rollcodex-settings-field input[type="number"] {
+  flex: 0 0 84px;
+}
+
+@media (max-width: 820px) {
+  #settings-config .rollcodex-settings-card .form-fields {
+    flex: 0 0 100%;
+    justify-content: stretch;
+  }
+
+  #settings-config .rollcodex-settings-card button {
+    width: 100%;
+  }
+}
+
 .rollcodex-live-panel,
 .rollcodex-live,
 .rollcodex-mapping {
