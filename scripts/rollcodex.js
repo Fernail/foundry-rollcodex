@@ -1552,11 +1552,32 @@ function syncFloatingPanelToggleButton(root) {
   const buttons = root?.querySelectorAll?.(selector) || document.querySelectorAll(selector);
   if (!buttons?.length) return;
   buttons.forEach((button) => {
+    bindFloatingPanelToggleButton(button);
     button.classList.toggle('active', !hidden);
     button.setAttribute('aria-pressed', String(!hidden));
     button.title = hidden ? 'Afficher le panneau RollCodex' : 'Masquer le panneau RollCodex';
     button.setAttribute('aria-label', button.title);
   });
+}
+
+function handleFloatingPanelToggleEvent(event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  event?.stopImmediatePropagation?.();
+  toggleFloatingPanelHidden().catch((error) => {
+    console.warn('[RollCodex] Toggle floating panel failed', error);
+  });
+}
+
+function bindFloatingPanelToggleButton(button) {
+  if (!button || button.dataset.rollcodexFloatingBound === 'true') return;
+  button.dataset.rollcodexFloatingBound = 'true';
+  button.dataset.rollcodexFloatingToggle = 'true';
+  button.addEventListener('click', handleFloatingPanelToggleEvent, true);
+  button.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    handleFloatingPanelToggleEvent(event);
+  }, true);
 }
 
 function createFloatingPanelToggleButton() {
@@ -1569,20 +1590,9 @@ function createFloatingPanelToggleButton() {
   button.className = 'control ui-control tool icon fa-solid fa-dice-d20 rollcodex-floating-toggle';
   button.dataset.tool = FLOATING_PANEL_TOOL_ID;
   button.dataset.rollcodexFloatingToggle = 'true';
-  const handleToggle = (event) => {
-    event?.preventDefault?.();
-    event?.stopPropagation?.();
-    toggleFloatingPanelHidden().catch((error) => {
-      console.warn('[RollCodex] Toggle floating panel failed', error);
-    });
-  };
-  button.addEventListener('click', handleToggle);
+  bindFloatingPanelToggleButton(button);
   button.addEventListener('mousedown', (event) => event.stopPropagation());
   button.addEventListener('pointerdown', (event) => event.stopPropagation());
-  button.addEventListener('keydown', (event) => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    handleToggle(event);
-  });
   item.appendChild(button);
   return item;
 }
@@ -1635,13 +1645,6 @@ function installFloatingPanelControlButton(root) {
 }
 
 function createFloatingPanelSceneTool(order = -1000) {
-  const handleToggle = (event) => {
-    event?.preventDefault?.();
-    event?.stopPropagation?.();
-    toggleFloatingPanelHidden().catch((error) => {
-      console.warn('[RollCodex] Toggle floating panel failed', error);
-    });
-  };
   return {
     name: FLOATING_PANEL_TOOL_ID,
     order,
@@ -1649,8 +1652,8 @@ function createFloatingPanelSceneTool(order = -1000) {
     icon: 'fa-solid fa-dice-d20',
     button: true,
     visible: true,
-    onChange: handleToggle,
-    onClick: handleToggle,
+    onChange: handleFloatingPanelToggleEvent,
+    onClick: handleFloatingPanelToggleEvent,
   };
 }
 
