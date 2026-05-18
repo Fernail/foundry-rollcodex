@@ -1,7 +1,7 @@
 /* global Dialog, FormApplication, Hooks, foundry, game, ui */
 
 const MODULE_ID = 'rollcodex';
-const MODULE_VERSION = '0.1.44';
+const MODULE_VERSION = '0.1.45';
 const DEFAULT_ROLLCODEX_APP_URL = 'http://localhost:5173';
 const MESSAGE_HANDSHAKE_TYPE = 'rollcodex:vtt-pairing-handshake';
 const MESSAGE_HANDSHAKE_RESPONSE_TYPE = 'rollcodex:vtt-pairing-handshake-response';
@@ -86,6 +86,7 @@ const SETTINGS = {
   mappingProfileFetchedAt: 'mappingProfileFetchedAt',
   liveMetricsEnabled: 'liveMetricsEnabled',
   floatingPanelCollapsed: 'floatingPanelCollapsed',
+  floatingPanelHidden: 'floatingPanelHidden',
   floatingPanelLeft: 'floatingPanelLeft',
   floatingPanelTop: 'floatingPanelTop',
 };
@@ -100,6 +101,7 @@ const CLIENT_SCOPED_SETTINGS = new Set([
   SETTINGS.pendingPairingUrl,
   SETTINGS.liveMetricsEnabled,
   SETTINGS.floatingPanelCollapsed,
+  SETTINGS.floatingPanelHidden,
   SETTINGS.floatingPanelLeft,
   SETTINGS.floatingPanelTop,
 ]);
@@ -1431,6 +1433,7 @@ function summarizeLiveMetricsForPayload() {
 function getFloatingPanelSettings() {
   return {
     collapsed: Boolean(game.settings.get(MODULE_ID, SETTINGS.floatingPanelCollapsed)),
+    hidden: Boolean(game.settings.get(MODULE_ID, SETTINGS.floatingPanelHidden)),
     left: Number(game.settings.get(MODULE_ID, SETTINGS.floatingPanelLeft)) || 96,
     top: Number(game.settings.get(MODULE_ID, SETTINGS.floatingPanelTop)) || 92,
   };
@@ -1441,6 +1444,9 @@ async function patchFloatingPanelSettings(patch) {
   if (Object.prototype.hasOwnProperty.call(patch, 'collapsed')) {
     writes.push(game.settings.set(MODULE_ID, SETTINGS.floatingPanelCollapsed, Boolean(patch.collapsed)));
   }
+  if (Object.prototype.hasOwnProperty.call(patch, 'hidden')) {
+    writes.push(game.settings.set(MODULE_ID, SETTINGS.floatingPanelHidden, Boolean(patch.hidden)));
+  }
   if (Object.prototype.hasOwnProperty.call(patch, 'left')) {
     writes.push(game.settings.set(MODULE_ID, SETTINGS.floatingPanelLeft, Math.max(8, Math.round(Number(patch.left) || 96))));
   }
@@ -1448,6 +1454,13 @@ async function patchFloatingPanelSettings(patch) {
     writes.push(game.settings.set(MODULE_ID, SETTINGS.floatingPanelTop, Math.max(8, Math.round(Number(patch.top) || 92))));
   }
   await Promise.all(writes);
+}
+
+async function toggleFloatingPanelHidden(force) {
+  const settings = getFloatingPanelSettings();
+  const nextHidden = typeof force === 'boolean' ? force : !settings.hidden;
+  await patchFloatingPanelSettings({ hidden: nextHidden });
+  renderFloatingPanel();
 }
 
 function setFloatingPanelStatus(status) {
@@ -1766,6 +1779,11 @@ function renderFloatingPanel() {
   }
 
   const settings = getFloatingPanelSettings();
+  if (settings.hidden) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
   const connection = getStoredConnection();
   const connected = hasStoredConnection(connection);
   const canSend = canCurrentUserSendSnapshots();
@@ -3743,6 +3761,13 @@ Hooks.once('init', () => {
     default: false,
   });
 
+  registerSetting(SETTINGS.floatingPanelHidden, {
+    scope: 'client',
+    config: false,
+    type: Boolean,
+    default: false,
+  });
+
   registerSetting(SETTINGS.floatingPanelLeft, {
     scope: 'client',
     config: false,
@@ -3765,6 +3790,7 @@ Hooks.once('init', () => {
       SETTINGS.autoSnapshotIdleMinutes,
       SETTINGS.liveMetricsEnabled,
       SETTINGS.floatingPanelCollapsed,
+      SETTINGS.floatingPanelHidden,
       SETTINGS.floatingPanelLeft,
       SETTINGS.floatingPanelTop,
     ].includes(key))
@@ -3841,5 +3867,47 @@ Hooks.once('ready', async () => {
     fetchMappingProfile({ force: false }).catch((error) => {
       console.warn('[RollCodex] Initial mapping profile fetch failed', error);
     });
+  }
+});
+
+Hooks.on('getSceneControlButtons', (controls) => {
+  if (typeof game === 'undefined' || !game.settings?.get) return;
+  const hidden = Boolean(game.settings.get(MODULE_ID, SETTINGS.floatingPanelHidden));
+  const handleToggle = () => {
+    toggleFloatingPanelHidden().catch((error) => {
+      console.warn('[RollCodex] Toggle floating panel failed', error);
+    });
+  };
+  const tool = {
+    name: 'rollcodex-toggle-panel',
+    title: hidden ? 'Afficher le panneau RollCodex' : 'Masquer le panneau RollCodex',
+    icon: 'fas fa-dice-d20',
+    button: true,
+    toggle: true,
+    active: !hidden,
+    visible: true,
+    onClick: handleToggle,
+    onChange: handleToggle,
+  };
+  const category = {
+    name: 'rollcodex',
+    title: 'RollCodex',
+    icon: 'fas fa-dice-d20',
+    layer: 'controls',
+    visible: true,
+    button: true,
+    onClick: handleToggle,
+    onChange: handleToggle,
+    activeTool: tool.name,
+  };
+
+  if (Array.isArray(controls)) {
+    category.tools = [tool];
+    controls.push(category);
+    return;
+  }
+  if (controls && typeof controls === 'object') {
+    category.tools = { [tool.name]: tool };
+    controls.rollcodex = category;
   }
 });

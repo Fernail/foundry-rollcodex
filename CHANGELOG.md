@@ -1,3 +1,9 @@
+## 0.1.45 (2026-05-18)
+
+- Feat: nouveau raccourci dans la barre de scene controls Foundry (gauche)
+  pour afficher / masquer le bandeau flottant RollCodex sans passer par le
+  menu reduire. Toggle persistant par client.
+
 ## 0.1.44 (2026-05-18)
 
 - Fix: quand Foundry ajoute les degats sur le meme message que l attaque, le
