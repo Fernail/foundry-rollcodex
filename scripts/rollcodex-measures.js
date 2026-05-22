@@ -40,15 +40,14 @@
       return null;
     }
 
-    const targetRole = normalizeString(measure.target_role) || 'all';
+    const rawTargetRole = normalizeString(measure.target_role) || 'all';
+    const targetRole = rawTargetRole === 'gm_only' ? 'all' : rawTargetRole;
     if (targetRole !== 'all') {
       const participantId = normalizeString(event.participant_id);
       const gmUserId = normalizeString(options.gmUserId);
       const npcActorIds = options.npcActorIds || new Set();
 
-      if (targetRole === 'gm_only') {
-        if (!participantId || participantId !== gmUserId) return null;
-      } else if (targetRole === 'players_only') {
+      if (targetRole === 'players_only') {
         if (!participantId || participantId === gmUserId) return null;
         if (npcActorIds.has(participantId)) return null;
       } else if (targetRole === 'npcs_only') {
@@ -320,9 +319,9 @@
   }
 
   function eventMatchesMetricTargetRole(event, metric) {
-    const targetRole = normalizeString(metric?.target_role || metric?.targetRole || 'all').toLowerCase() || 'all';
+    const rawTargetRole = normalizeString(metric?.target_role || metric?.targetRole || 'all').toLowerCase() || 'all';
+    const targetRole = rawTargetRole === 'gm_only' ? 'all' : rawTargetRole;
     if (targetRole === 'all') return true;
-    if (targetRole === 'gm_only') return event.route_to_gm === true;
     if (targetRole === 'players_only') {
       // Inclut les jets de PJ ET les actions du GM via un PNJ/monstre (mappes
       // sur le bucket GM mais materialises par un acteur a la table). Exclut
