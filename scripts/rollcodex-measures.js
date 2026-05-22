@@ -85,23 +85,13 @@
     const field = normalizeString(measure.field);
 
     if (aggregation === 'percent_critical') {
-      const percentField = normalizeString(measure.percent_field);
-      const percentOperator = normalizeString(measure.percent_operator) || 'eq';
-      const percentValue = normalizeNumber(measure.percent_value);
+      if (event.is_critical !== true && event.is_critical_hint !== true) return null;
+      return { value: 1, field: 'is_critical', kind: 'percent_critical' };
+    }
 
-      if (!percentField || percentValue === null) return null;
-
-      const eventValue = normalizeNumber(event[percentField]);
-      if (eventValue === null) return null;
-
-      let matches = false;
-      if (percentOperator === 'eq') matches = eventValue === percentValue;
-      else if (percentOperator === 'gte') matches = eventValue >= percentValue;
-      else if (percentOperator === 'lte') matches = eventValue <= percentValue;
-
-      if (!matches) return null;
-
-      return { value: 1, field: percentField, kind: 'percent_critical' };
+    if (aggregation === 'percent_fumble') {
+      if ((event.is_fumble !== true && event.is_fumble_hint !== true) || event.is_critical === true || event.is_critical_hint === true) return null;
+      return { value: 1, field: 'is_fumble', kind: 'percent_fumble' };
     }
 
     if (aggregation === 'count') {
@@ -123,7 +113,7 @@
 
     const values = contributions.map((c) => c.value);
 
-    if (aggregation === 'count' || aggregation === 'percent_critical') {
+    if (aggregation === 'count' || aggregation === 'percent_critical' || aggregation === 'percent_fumble') {
       return values.length;
     }
 
@@ -142,7 +132,7 @@
   function formatMeasureValue(value, measure) {
     const aggregation = normalizeString(measure.aggregation);
 
-    if (aggregation === 'count' || aggregation === 'percent_critical') {
+    if (aggregation === 'count' || aggregation === 'percent_critical' || aggregation === 'percent_fumble') {
       return String(Math.round(value));
     }
 
@@ -400,14 +390,14 @@
       const hasCritFlag = event.is_critical === true || event.is_critical_hint === true;
       if (!isRollLikeEvent(event) && !hasCritFlag) return false;
       bucket.denominator += 1;
-      if (event.roll_natural === 20 || event.roll_natural_hint === 20 || hasCritFlag) bucket.numerator += 1;
+      if (hasCritFlag) bucket.numerator += 1;
       return true;
     }
     if (aggregation === 'percent_fumble') {
       const hasFumbleFlag = event.is_fumble === true || event.is_fumble_hint === true;
       if (!isRollLikeEvent(event) && !hasFumbleFlag) return false;
       bucket.denominator += 1;
-      if (event.roll_natural === 1 || event.roll_natural_hint === 1 || hasFumbleFlag) bucket.numerator += 1;
+      if (hasFumbleFlag) bucket.numerator += 1;
       return true;
     }
     if (aggregation === 'percent') {
