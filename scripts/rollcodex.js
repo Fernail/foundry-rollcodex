@@ -1,7 +1,7 @@
 /* global Dialog, FormApplication, Hooks, foundry, game, ui */
 
 const MODULE_ID = 'rollcodex';
-const MODULE_VERSION = '0.1.58';
+const MODULE_VERSION = '0.1.59';
 const ROLLCODEX_PRODUCTION_APP_URL = 'https://rollcodex.app';
 const DEFAULT_ROLLCODEX_APP_URL = ROLLCODEX_PRODUCTION_APP_URL;
 const LEGACY_LOCAL_ROLLCODEX_APP_PORT = '5173';
