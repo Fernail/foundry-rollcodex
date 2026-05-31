@@ -2236,18 +2236,33 @@ function getChatMessagesSince(sinceMessageId = '') {
 
 function collectChatMessagesSince(sinceMessageId) {
   const slice = getChatMessagesSince(sinceMessageId);
+  const profile = getCachedMappingProfile();
   const messages = slice
     .map((message) => {
       const rawText = stripHtml(message.content || '');
       const actor = resolveMessageActor(message);
       const item = resolveMessageItem(message, actor);
       const speaker = getActorSpeakerAlias(actor, message.speaker?.alias || message.alias || message.user?.name || 'Foundry');
+      const roll = buildMessageRollSnapshot(message, { actor, item, rawText });
+      const actionNameHint = normalizeString(roll?.action_name);
+      const scopedActionHint = resolveScopedActionEventTypeHint(profile, {
+        speaker,
+        raw_text: rawText,
+        roll,
+        action_name_hint: actionNameHint,
+      }, { actor, speaker });
       return {
         id: String(message.id || ''),
         timestamp: new Date(message.timestamp || Date.now()).toISOString(),
         speaker,
         raw_text: rawText,
-        roll: buildMessageRollSnapshot(message, { actor, item, rawText }),
+        roll,
+        ...(actionNameHint ? { action_name_hint: actionNameHint } : {}),
+        ...(normalizeString(roll?.action_type) ? { action_type_hint: normalizeString(roll.action_type) } : {}),
+        ...(scopedActionHint ? {
+          event_type_hint: scopedActionHint.eventType,
+          scoped_pattern_hint: scopedActionHint.pattern,
+        } : {}),
       };
     })
     .filter((message) => message.raw_text);
@@ -2456,6 +2471,10 @@ async function sendSnapshotPayload({ mode = 'manual', reason = 'manual', skipIfE
 
   try {
     const sinceMessageId = getStoredLastMessageId();
+    await fetchMappingProfile().catch((error) => {
+      console.warn('[RollCodex] Mapping profile refresh before snapshot failed', error);
+      return null;
+    });
     const { payload, lastMessageId, messageCount } = buildSnapshotPayload(connection, {
       mode,
       reason,
@@ -2842,6 +2861,90 @@ function resolveMappingFromProfile(sourceKind, sourceKey) {
 
   const indexKey = `${sourceKind}${String(sourceKey).toLowerCase()}`;
   return mappingProfileState.index.get(indexKey) || null;
+}
+
+function normalizeScopedPatternKey(value) {
+  return normalizeString(value)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function getScopedPatternScopeRank(scopeKey) {
+  const key = normalizeString(scopeKey).toLowerCase();
+  if (key.startsWith('character:')) return 0;
+  if (key.startsWith('player:')) return 1;
+  if (key.startsWith('table:')) return 2;
+  if (key.startsWith('campaign:')) return 3;
+  if (key === 'workspace') return 4;
+  return 9;
+}
+
+function getActorProfileSourceKey(actor) {
+  if (!actor) return '';
+  return actor.uuid || (actor.id ? `Actor.${actor.id}` : '');
+}
+
+function getFoundryMessageScopedScopeKeys(profile, { actor, speaker }) {
+  const scopeKeys = new Set(['workspace']);
+  const context = profile?.context && typeof profile.context === 'object' ? profile.context : {};
+  const tableId = normalizeString(context.table_id);
+  const campaignId = normalizeString(context.campaign_id);
+  if (tableId) scopeKeys.add(`table:${tableId}`);
+  if (campaignId) scopeKeys.add(`campaign:${campaignId}`);
+
+  const actorSourceKey = getActorProfileSourceKey(actor);
+  const mapping = actorSourceKey ? resolveMappingFromProfile('actor', actorSourceKey) : null;
+  const fallbackMapping = mapping || (speaker ? resolveMappingFromProfile('speaker', speaker) : null);
+  const targetKind = normalizeString(fallbackMapping?.target_kind).toLowerCase();
+  const targetId = normalizeString(fallbackMapping?.target_id);
+  if (targetId && targetKind === 'character') scopeKeys.add(`character:${targetId}`);
+  if (targetId && targetKind === 'player') scopeKeys.add(`player:${targetId}`);
+  return scopeKeys;
+}
+
+function resolveScopedActionEventTypeHint(profile, message, context = {}) {
+  const scopedPatterns = Array.isArray(profile?.scoped_patterns) ? profile.scoped_patterns : [];
+  if (!scopedPatterns.length) return null;
+  const actionKey = normalizeScopedPatternKey(message?.action_name_hint || message?.action_name || message?.roll?.action_name);
+  const rawKey = normalizeScopedPatternKey(message?.raw_text || message?.rawText);
+  if (!actionKey && !rawKey) return null;
+
+  const allowedScopes = getFoundryMessageScopedScopeKeys(profile, {
+    actor: context.actor || null,
+    speaker: message?.speaker || context.speaker || '',
+  });
+  const candidates = scopedPatterns
+    .filter((pattern) => {
+      if (pattern?.pattern_kind !== 'action_event_type') return false;
+      if (pattern?.target_kind !== 'event_type') return false;
+      if (!allowedScopes.has(normalizeString(pattern.scope_key))) return false;
+      const reviewState = normalizeString(pattern.review_state || 'accepted').toLowerCase();
+      if (reviewState && reviewState !== 'accepted' && reviewState !== 'corrected') return false;
+      const patternKey = normalizeScopedPatternKey(pattern.pattern_key || pattern.pattern_label);
+      if (!patternKey) return false;
+      return (actionKey && patternKey === actionKey)
+        || (rawKey && patternKey.length >= 3 && rawKey.includes(patternKey));
+    })
+    .sort((left, right) => {
+      const scopeDelta = getScopedPatternScopeRank(left.scope_key) - getScopedPatternScopeRank(right.scope_key);
+      if (scopeDelta !== 0) return scopeDelta;
+      return Number(right.confidence || 0) - Number(left.confidence || 0);
+    });
+  const selected = candidates[0];
+  const eventType = normalizeString(selected?.target_value);
+  if (!eventType) return null;
+  return {
+    eventType,
+    pattern: {
+      scope_key: selected.scope_key || null,
+      pattern_key: selected.pattern_key || null,
+      target_value: eventType,
+      confidence: Number(selected.confidence || 0),
+    },
+  };
 }
 
 async function fetchMappingProfile({ force = false } = {}) {
@@ -4180,6 +4283,7 @@ Hooks.once('ready', async () => {
   globalThis.resolveMessageActor = resolveMessageActor;
   globalThis.extractRollFigures = extractRollFigures;
   globalThis.resolveMappingFromProfile = resolveMappingFromProfile;
+  globalThis.resolveRollCodexScopedActionEventTypeHint = resolveScopedActionEventTypeHint;
   globalThis.getRollCodexLiveBackfillMessages = getLiveBackfillMessages;
   globalThis.inferRollCodexActorKind = inferActorKind;
 

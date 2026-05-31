@@ -674,8 +674,14 @@
     const bucket = isPlayerCharacter
       ? getPcMetricBucket(profile, { actor, speaker, mapping })
       : getGmMetricBucket(profile, { speaker, user });
-    const eventType = normalizeFoundryEventType(rollFigures);
     const actionName = normalizeString(rollFigures.actionName || message.flavor || 'Action');
+    const scopedActionHint = globalThis.resolveRollCodexScopedActionEventTypeHint?.(profile, {
+      speaker,
+      raw_text: normalizeString(message.content || message.flavor || ''),
+      action_name_hint: actionName,
+      action_name: actionName,
+    }, { actor, speaker });
+    const eventType = normalizeString(scopedActionHint?.eventType) || normalizeFoundryEventType(rollFigures);
     const rollNatural = normalizeNumber(rollFigures.rollNatural) ?? (rollFigures.nat20 > 0 ? 20 : null);
 
     return {
@@ -685,6 +691,7 @@
       action_type_hint: eventType,
       action_name: actionName,
       action_name_hint: actionName,
+      ...(scopedActionHint ? { scoped_pattern_hint: scopedActionHint.pattern } : {}),
       roll_total: normalizeNumber(rollFigures.rollTotal ?? rollFigures.total),
       roll_total_hint: normalizeNumber(rollFigures.rollTotal ?? rollFigures.total),
       roll_natural: rollNatural,
